@@ -1,0 +1,299 @@
+const API_BASE = import.meta.env.VITE_JARVIS_API_URL ?? "";
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) {
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  return data;
+}
+
+export interface GoalSummary {
+  id: string;
+  title: string;
+  outcome: string;
+  domain: string;
+  status: string;
+  mode: string;
+  trust_tier: string;
+  updated_at: string;
+}
+
+export interface EvidenceNode {
+  id: string;
+  kind: string;
+  payload_summary: string;
+  at: string;
+  prev_id?: string;
+}
+
+export interface RunRow {
+  id: string;
+  status: string;
+  mode: string;
+  os_run_id?: string;
+  tool_invocations: string[];
+  decision_id: string;
+  policy_verdict_id: string;
+  delegation_chain: string[];
+}
+
+export interface TaskRow {
+  id: string;
+  title: string;
+  status: string;
+  tool_ids: string[];
+  intent: string;
+}
+
+export interface GoalDetailResponse {
+  adapter: string;
+  mode: string;
+  trust_tier: string;
+  goal: {
+    id: string;
+    title: string;
+    outcome: string;
+    domain: string;
+    status: string;
+    mode: string;
+    trust_tier: string;
+    updated_at?: string;
+    key_results: { id: string; label: string; current?: number | string; target: number | string }[];
+  };
+  objectives: { id: string; title: string; success_criteria: string }[];
+  tasks: TaskRow[];
+  runs: RunRow[];
+}
+
+export function getHealth() {
+  return request<{
+    ok: boolean;
+    adapter: string;
+    phase: string;
+    kill_switch?: { engaged: boolean; reason: string | null };
+    control_api?: string | null;
+    observation_only?: boolean;
+  }>("/health");
+}
+
+export function listGoals() {
+  return request<{ adapter: string; goals: GoalSummary[] }>("/v1/goals");
+}
+
+export function runShadowLoop(body: { title: string; outcome: string; domain: string }) {
+  return request<{
+    adapter: string;
+    message: string;
+    decision_outcome: string;
+    decision_id: string;
+    goal: {
+      id: string;
+      title: string;
+      outcome: string;
+      domain: string;
+      status: string;
+      mode: string;
+      trust_tier: string;
+      updated_at: string;
+    };
+    runs: RunRow[];
+    detail: GoalDetailResponse | null;
+    evidence: EvidenceNode[];
+  }>("/v1/goals/shadow-loop", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getGoal(id: string) {
+  return request<GoalDetailResponse>(`/v1/goals/${id}`);
+}
+
+export function getEvidence(id: string) {
+  return request<{ adapter: string; evidence: EvidenceNode[]; evidence_json: string }>(
+    `/v1/goals/${id}/evidence`,
+  );
+}
+
+export interface DecisionRecordDto {
+  id: string;
+  goal_id?: string;
+  decision: string;
+  why: string;
+  alternatives: string[];
+  evidence_head: string;
+  expected?: string;
+  actual?: string;
+  confidence: number;
+  outcome: string;
+}
+
+export interface ReplayResponse {
+  adapter: string;
+  decision: DecisionRecordDto;
+  goal: GoalSummary | null;
+  evidence: EvidenceNode[];
+  runs: RunRow[];
+  replay_json: string;
+}
+
+export function listJournal(goalId?: string) {
+  const q = goalId ? `?goal_id=${encodeURIComponent(goalId)}` : "";
+  return request<{ adapter: string; journal: DecisionRecordDto[] }>(`/v1/journal${q}`);
+}
+
+export function getReplay(decisionId: string) {
+  return request<ReplayResponse>(`/v1/replay/${decisionId}`);
+}
+
+export interface ToolManifestDto {
+  tool_id: string;
+  version: string;
+  adapter: string;
+  display_name: string;
+  effects: string[];
+  resources: string[];
+  blast_radius: string;
+  idempotent: boolean;
+  dry_run_supported: boolean;
+  required_autonomy: number;
+  required_trust_tier: string;
+  side_channels: string[];
+}
+
+export interface EscalationDto {
+  id: string;
+  goal_id: string;
+  run_id?: string;
+  tool_id: string;
+  verdict_id: string;
+  verdict_class: string;
+  reason: string;
+  status: string;
+  created_at: string;
+  expires_at: string;
+  resolved_at?: string;
+  title?: string;
+}
+
+export function listTools() {
+  return request<{ adapter: string; tools: ToolManifestDto[] }>("/v1/tools");
+}
+
+export function getTrustStatus() {
+  return request<{
+    principals: { id: string; role: string }[];
+    domain_tiers: Record<string, string>;
+    kill_switch: { engaged: boolean; reason: string | null };
+    autonomy_defaults: Record<string, number>;
+    note: string;
+  }>("/v1/trust/status");
+}
+
+export function setKillSwitch(action: "engage" | "clear", reason?: string) {
+  return request<{ kill_switch: { engaged: boolean; reason: string | null } }>(
+    "/v1/trust/kill-switch",
+    {
+      method: "POST",
+      body: JSON.stringify({ action, reason }),
+    },
+  );
+}
+
+export function listEscalations(status?: string) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request<{ escalations: EscalationDto[] }>(`/v1/escalations${q}`);
+}
+
+export function createEscalationDemo(body?: { title?: string; outcome?: string }) {
+  return request<{
+    message: string;
+    escalation: EscalationDto | null;
+    verdict: { id: string; class: string; reason: string };
+  }>("/v1/escalations/demo", {
+    method: "POST",
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
+export function resolveEscalation(id: string, decision: "approve" | "reject") {
+  return request<{ escalation: EscalationDto; note: string }>(`/v1/escalations/${id}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
+}
+
+export interface OsSnapshotDto {
+  adapter: string;
+  control_api: string | null;
+  observation_only: boolean;
+  reachable: boolean;
+  error?: string;
+  state?: {
+    at: string;
+    active_run_ids: string[];
+    pending_gate_count: number;
+    overlapping_summaries: string[];
+    raw_summary: string;
+  };
+  capabilities?: { tool_id: string; display_name: string; specialist_id?: string }[];
+}
+
+export function getOsSnapshot() {
+  return request<OsSnapshotDto>("/v1/os/snapshot").catch(async (err) => {
+    // 503 still returns a useful body — re-fetch raw for Settings panel
+    const res = await fetch(`${API_BASE}/v1/os/snapshot`);
+    const data = (await res.json().catch(() => null)) as OsSnapshotDto | null;
+    if (data && data.reachable === false) return data;
+    throw err;
+  });
+}
+
+export function setAdapter(adapter: "mock" | "umer-read") {
+  return request<{
+    adapter: string;
+    control_api: string | null;
+    observation_only: boolean;
+    note: string;
+  }>("/v1/adapter", {
+    method: "POST",
+    body: JSON.stringify({ adapter }),
+  });
+}
+
+export function promoteLive(
+  goalId: string,
+  body: { confirm: string; project_id?: string; approver?: string },
+) {
+  return request<{
+    adapter: string;
+    goal: GoalSummary & { trust_tier: string };
+    run: RunRow;
+    os_run_id?: string;
+    message: string;
+    decision_id: string;
+  }>(`/v1/goals/${goalId}/promote-live`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function getLiveStatus(goalId: string) {
+  return request<{
+    adapter: string;
+    goal_id: string;
+    goal_mode: string;
+    trust_tier: string;
+    run: RunRow | null;
+    os_run: { os_run_id: string; status: string; summary: string } | null;
+    error?: string;
+  }>(`/v1/goals/${goalId}/live-status`);
+}

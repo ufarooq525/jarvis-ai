@@ -1,0 +1,28 @@
+{
+  "name": "jarvis-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal Goal Engine / control plane above Umer AI OS — adapter-isolated",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "pnpm --filter @jarvis/web build && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm --filter @jarvis/api typecheck && pnpm --filter @jarvis/web typecheck",
+    "test": "vitest run && pnpm --filter @jarvis/api test",
+    "test:watch": "vitest",
+    "cli": "tsx src/cli.ts",
+    "shadow": "tsx src/cli.ts",
+    "dev:api": "pnpm --filter @jarvis/api dev",
+    "dev:web": "pnpm --filter @jarvis/web dev",
+    "dev": "pnpm run dev:api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

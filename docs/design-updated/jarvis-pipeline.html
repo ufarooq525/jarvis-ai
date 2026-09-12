@@ -1,0 +1,875 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-mode="shadow">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============ TOKENS ============ */
+:root{
+  --canvas:#f2f3f5; --surface:#fff; --sunken:#f9fafb; --raise:#fff;
+  --line:#e5e7eb; --line-2:#d3d6dd; --line-3:#b4b9c4;
+  --ink:#101317; --ink-2:#575d6b; --ink-3:#888f9d;
+  --stated:#8b91a0; --stated-bg:#edeff3; --stated-ink:#464c5b;
+  --shadow:#c4881a; --shadow-bg:#fdf3e0; --shadow-line:#eed9ae; --shadow-ink:#845d0c;
+  --live:#2b9468; --live-bg:#e5f4ed; --live-line:#b5ddca; --live-ink:#1b6547;
+  --danger:#bb3a2c; --danger-bg:#fceeec; --danger-line:#f0cdc8; --danger-ink:#8c2a1e;
+  --shade:0 1px 2px rgba(16,19,23,.05);
+  --shade-lg:0 18px 44px rgba(16,19,23,.16),0 2px 8px rgba(16,19,23,.08);
+  --r:9px; --r-lg:13px; --mono:'IBM Plex Mono',ui-monospace,monospace;
+  --dur:.22s; --ease:cubic-bezier(.34,1.2,.64,1);
+}
+[data-theme="dark"]{
+  --canvas:#0b0d11; --surface:#14171d; --sunken:#101319; --raise:#1a1e25;
+  --line:#232830; --line-2:#2f3641; --line-3:#434b59;
+  --ink:#e9ecf1; --ink-2:#98a0b0; --ink-3:#697184;
+  --stated:#697184; --stated-bg:#1c2029; --stated-ink:#a6aebd;
+  --shadow:#d6a03d; --shadow-bg:#231c0e; --shadow-line:#463819; --shadow-ink:#e0b25e;
+  --live:#3cb184; --live-bg:#0f2118; --live-line:#1e4231; --live-ink:#58c49a;
+  --danger:#dd6a5b; --danger-bg:#28140f; --danger-line:#47241c; --danger-ink:#e88b7d;
+  --shade:0 1px 2px rgba(0,0,0,.4);
+  --shade-lg:0 18px 44px rgba(0,0,0,.55),0 2px 8px rgba(0,0,0,.35);
+}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;background:var(--canvas);color:var(--ink);font-family:'Space Grotesk',system-ui,sans-serif;
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;letter-spacing:-.024em;font-weight:600}
+button{font-family:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ink);outline-offset:2px;border-radius:5px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ============ HEADER ============ */
+.top{position:sticky;top:0;z-index:40;background:var(--surface);border-bottom:1px solid var(--line);
+  height:58px;display:flex;align-items:center;gap:20px;padding:0 20px}
+.mark{display:flex;align-items:center;gap:10px;padding-right:4px}
+.mark-glyph{width:22px;height:22px;border-radius:6px;border:1.5px solid var(--ink);
+  display:flex;align-items:center;padding:0 3px;transition:border-color var(--dur)}
+.mark-glyph span{width:6px;height:6px;border-radius:50%;background:var(--shadow);
+  transition:transform var(--dur) var(--ease),background var(--dur)}
+[data-mode="live"] .mark-glyph{border-color:var(--live)}
+[data-mode="live"] .mark-glyph span{background:var(--live);transform:translateX(8px)}
+.mark b{font-size:14.5px;font-weight:700;letter-spacing:.07em}
+.nav{display:flex;gap:1px}
+.nav button{background:0;border:0;font-size:13.5px;font-weight:500;color:var(--ink-2);
+  padding:7px 12px;border-radius:7px;cursor:pointer;transition:background var(--dur)}
+.nav button:hover{background:var(--canvas);color:var(--ink)}
+.nav button[aria-current]{background:var(--ink);color:var(--surface)}
+.nav em{font-style:normal;font-family:var(--mono);font-size:10.5px;margin-left:6px;opacity:.75}
+.top-r{margin-left:auto;display:flex;align-items:center;gap:9px}
+.kbd{display:flex;align-items:center;gap:7px;background:var(--canvas);border:1px solid var(--line);
+  border-radius:8px;padding:6px 10px;font-size:12.5px;color:var(--ink-3);cursor:pointer}
+.kbd:hover{border-color:var(--line-3);color:var(--ink-2)}
+.kbd kbd{font-family:var(--mono);font-size:10.5px;background:var(--surface);border:1px solid var(--line-2);
+  border-radius:4px;padding:1px 5px}
+.guard{display:flex;align-items:center;gap:10px;border-radius:8px;padding:5px 6px 5px 11px;
+  border:1px solid var(--shadow-line);background:var(--shadow-bg);transition:all var(--dur)}
+[data-mode="live"] .guard{border-color:var(--live-line);background:var(--live-bg)}
+.guard-dot{width:6px;height:6px;border-radius:50%;background:var(--shadow)}
+[data-mode="live"] .guard-dot{background:var(--live);animation:blip 2s ease-in-out infinite}
+@keyframes blip{50%{opacity:.35}}
+.guard b{font-size:12.5px;font-weight:700;color:var(--shadow-ink)}
+.guard span{font-size:12px;color:var(--shadow-ink);opacity:.82}
+[data-mode="live"] .guard b,[data-mode="live"] .guard span{color:var(--live-ink)}
+.guard button{font-size:12px;font-weight:600;background:var(--surface);border:1px solid var(--shadow-line);
+  color:var(--shadow-ink);border-radius:6px;padding:4px 10px;cursor:pointer}
+[data-mode="live"] .guard button{border-color:var(--live-line);color:var(--live-ink)}
+.ico{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--surface);
+  color:var(--ink-2);cursor:pointer;display:grid;place-items:center;font-size:14px}
+.ico:hover{border-color:var(--line-3);color:var(--ink)}
+
+/* ============ PAGE ============ */
+.page{display:none;padding:22px 20px 40px}
+.page.on{display:block}
+.wrap{max-width:1200px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:20px;flex-wrap:wrap}
+.head h1{font-size:25px;font-weight:700;margin-bottom:3px}
+.head p{margin:0;font-size:14px;color:var(--ink-2);max-width:64ch}
+.btn{font-size:13.5px;font-weight:600;background:var(--ink);color:var(--surface);border:0;
+  border-radius:var(--r);padding:10px 17px;cursor:pointer;transition:opacity var(--dur)}
+.btn:hover{opacity:.87}
+.btn.sec{background:var(--surface);color:var(--ink);border:1px solid var(--line-2)}
+.btn.sec:hover{background:var(--sunken);opacity:1}
+.btn.warn{background:var(--danger);color:#fff}
+
+/* ============ BOARD ============ */
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;align-items:start;padding-bottom:104px}
+.col-hd{display:flex;align-items:center;gap:8px;padding:0 3px 9px}
+.col-hd b{font-size:12.5px;font-weight:700}
+.col-hd i{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--ink-2);
+  background:var(--stated-bg);border-radius:9px;padding:1px 7px;min-width:20px;text-align:center}
+.col-hd u{text-decoration:none;margin-left:auto;font-size:11px;color:var(--ink-3)}
+.track{border-top:3px solid var(--line-2);padding-top:11px;display:flex;flex-direction:column;gap:10px;min-height:96px}
+.t-shadow{border-color:var(--shadow)} .t-live{border-color:var(--live)}
+.col-hd.h-shadow i{background:var(--shadow-bg);color:var(--shadow-ink)}
+.col-hd.h-live i{background:var(--live-bg);color:var(--live-ink)}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:13px;
+  text-align:left;width:100%;font:inherit;cursor:pointer;display:block;box-shadow:var(--shade);
+  transition:border-color var(--dur),transform var(--dur) var(--ease),box-shadow var(--dur)}
+.card:hover{border-color:var(--line-3);transform:translateY(-1px);box-shadow:0 4px 12px rgba(16,19,23,.07)}
+[data-theme="dark"] .card:hover{box-shadow:0 4px 14px rgba(0,0,0,.4)}
+.card-top{display:flex;align-items:center;gap:7px;margin-bottom:7px}
+.dom{width:5px;height:5px;border-radius:50%;background:var(--stated)}
+.dom.ops{background:#5b7cc9} .dom.comms{background:#9a6bc4}
+.dom.finance{background:#2b9468} .dom.data{background:#c4881a}
+.card-top span{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.card-top time{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.card h3{font-size:14.5px;font-weight:600;line-height:1.32;margin-bottom:5px}
+.card p{margin:0 0 10px;font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.tags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.tag{font-size:10.5px;font-weight:500;border-radius:5px;padding:3px 7px;font-family:var(--mono);
+  background:var(--stated-bg);color:var(--stated-ink)}
+.tag.w{background:var(--danger-bg);color:var(--danger-ink)}
+.tag.lv{background:var(--live-bg);color:var(--live-ink)}
+.act{width:100%;font-size:12.5px;font-weight:600;border-radius:8px;padding:8px;cursor:pointer;
+  border:0;background:var(--ink);color:var(--surface);transition:opacity var(--dur)}
+.act:hover{opacity:.87}
+.act.sec{background:var(--sunken);color:var(--ink-2);border:1px solid var(--line)}
+.act.sec:hover{border-color:var(--line-3);color:var(--ink);opacity:1}
+.bar{height:4px;background:var(--stated-bg);border-radius:3px;overflow:hidden;margin-bottom:8px}
+.bar span{display:block;height:100%;background:var(--live);transition:width .5s var(--ease)}
+.run{font-size:12px;font-weight:500;color:var(--live-ink);margin:0 0 8px;display:flex;align-items:center;gap:7px}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--live);animation:blip 1.6s ease-in-out infinite;flex:none}
+.card.done{background:var(--sunken);border-style:dashed;box-shadow:none}
+.card.done h3{font-weight:500;color:var(--ink-2)}
+.card.fail{border-color:var(--danger-line)}
+.card.fail h3{color:var(--danger-ink)}
+.thinking{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.spin{width:11px;height:11px;border:1.5px solid var(--line-2);border-top-color:var(--ink-3);
+  border-radius:50%;animation:spin .9s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{border:1px dashed var(--line-2);border-radius:var(--r-lg);padding:17px 13px;text-align:center;
+  font-size:12.5px;color:var(--ink-3);line-height:1.5}
+.card.enter{animation:land .4s var(--ease) both;animation-delay:var(--d,0s)}
+@keyframes land{0%{transform:translateY(8px) scale(.985);opacity:0}100%{transform:none;opacity:1}}
+.card.cross{animation:cross .44s var(--ease) both}
+@keyframes cross{0%{transform:translateX(-30px) scale(.95);opacity:0}60%{opacity:1}100%{transform:none}}
+.card.leave{animation:lift .19s ease-in forwards}
+@keyframes lift{to{transform:translateX(20px) scale(.96);opacity:0}}
+.card:active{transform:scale(.993)}
+.btn:active,.act:active,.row:active{transform:scale(.988)}
+.page.on{animation:pageIn .24s var(--ease)}
+@keyframes pageIn{from{opacity:0;transform:translateY(5px)}}
+.col-hd i{transition:background var(--dur)}
+.col-hd i.bump{animation:bump .4s var(--ease)}
+@keyframes bump{38%{transform:scale(1.3)}}
+.track.flash{animation:flash .8s ease}
+@keyframes flash{34%{background:var(--live-bg)}}
+.row{animation:rowIn .3s var(--ease) both;animation-delay:var(--d,0s)}
+@keyframes rowIn{from{opacity:0;transform:translateY(4px)}}
+.step em.r{animation:blip 1.6s ease-in-out infinite}
+.bar span{transition:width .55s var(--ease)}
+
+/* composer */
+.comp{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);
+  border-top:1px solid var(--line);padding:13px 20px 15px}
+.comp-in{max-width:1200px;margin:0 auto}
+.field{display:flex;align-items:center;gap:9px;background:var(--canvas);border:1px solid var(--line-2);
+  border-radius:11px;padding:8px 8px 8px 14px;transition:border-color var(--dur),box-shadow var(--dur)}
+.field:focus-within{border-color:var(--ink);box-shadow:0 0 0 3px rgba(16,19,23,.07)}
+.field input{flex:1;background:0;border:0;font:inherit;font-size:14.5px;color:var(--ink);outline:none;min-width:0}
+.field input::placeholder{color:var(--ink-3)}
+.seg{display:flex;background:var(--surface);border:1px solid var(--line-2);border-radius:8px;padding:2px}
+.seg button{font-size:11.5px;font-weight:600;padding:5px 10px;border:0;border-radius:6px;background:0;
+  color:var(--ink-3);cursor:pointer;transition:all var(--dur)}
+.seg button[aria-pressed="true"]{background:var(--shadow-bg);color:var(--shadow-ink)}
+.seg button.lv[aria-pressed="true"]{background:var(--live-bg);color:var(--live-ink)}
+.comp-hint{margin:8px 0 0;font-size:11.5px;color:var(--ink-3);text-align:center}
+
+/* toast */
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%) translateY(14px);z-index:70;
+  display:none;align-items:center;gap:13px;background:var(--ink);color:var(--surface);
+  border-radius:11px;padding:11px 13px 11px 16px;box-shadow:var(--shade-lg);font-size:13.5px;opacity:0;
+  transition:opacity var(--dur),transform var(--dur) var(--ease)}
+.toast.on{display:flex;opacity:1;transform:translateX(-50%)}
+.toast b{font-weight:600}
+.toast button{background:rgba(255,255,255,.14);border:0;color:inherit;font-size:12.5px;font-weight:600;
+  border-radius:7px;padding:6px 12px;cursor:pointer}
+.toast button:hover{background:rgba(255,255,255,.24)}
+.toast .ring{width:15px;height:15px;flex:none}
+.toast .ring circle{fill:none;stroke:rgba(255,255,255,.35);stroke-width:3}
+.toast .ring .p{stroke:#fff;stroke-dasharray:38;animation:drain 7s linear forwards}
+@keyframes drain{to{stroke-dashoffset:38}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="mark"><span class="mark-glyph"><span></span></span><b>JARVIS</b></div>
+  <nav class="nav">
+    <button data-nav="board" aria-current="page">Board</button>
+    <button data-nav="goals">Goals <em id="n-goals">11</em></button>
+    <button data-nav="activity">Activity</button>
+    <button data-nav="settings">Settings</button>
+  </nav>
+  <div class="top-r">
+    <button class="kbd" id="open-cmd">Search or state an outcome <kbd>⌘K</kbd></button>
+    <div class="guard">
+      <span class="guard-dot"></span>
+      <b id="guard-name">Shadow</b>
+      <span id="guard-note">Nothing reaches the outside world</span>
+      <button id="guard-switch">Switch to Live</button>
+    </div>
+    <button class="ico" id="theme" aria-label="Toggle dark mode">◐</button>
+  </div>
+</header>
+
+<main class="page on" data-page="board">
+  <div class="head">
+    <div>
+      <h1 id="board-title">Good afternoon, Umer</h1>
+      <p id="board-sub">Two plans are waiting in review. A plan only becomes real when you move it right.</p>
+    </div>
+    <button class="btn" onclick="document.getElementById('say').focus()">State an outcome</button>
+  </div>
+  <div class="board" id="board"></div>
+
+  <div class="comp">
+    <div class="comp-in">
+      <div class="field">
+        <input id="say" placeholder="Get the Monday note out before I wake up" aria-label="State an outcome">
+        <div class="seg" id="seg">
+          <button data-m="shadow" aria-pressed="true">Shadow</button>
+          <button data-m="live" class="lv" aria-pressed="false">Live</button>
+        </div>
+        <button class="btn" id="plan-it" style="padding:9px 15px">Plan it</button>
+      </div>
+      <p class="comp-hint">Describe the outcome, not the steps. Shadow plans it and shows you. Live still asks before it runs.</p>
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast" role="status">
+  <svg class="ring" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6"/><circle class="p" cx="7" cy="7" r="6" transform="rotate(-90 7 7)"/></svg>
+  <span id="toast-text"><b>Approved.</b> Running live now.</span>
+  <button id="undo">Undo</button>
+</div>
+
+<style>
+/* ============ LIST / GOALS ============ */
+.filters{display:flex;gap:6px;margin-bottom:15px;flex-wrap:wrap}
+.filters button{font-size:12.5px;font-weight:500;background:var(--surface);border:1px solid var(--line);
+  color:var(--ink-2);border-radius:19px;padding:6px 13px;cursor:pointer}
+.filters button:hover{border-color:var(--line-3)}
+.filters button[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shade)}
+.row{display:grid;grid-template-columns:112px 1fr auto;gap:16px;align-items:center;padding:14px 17px;
+  border-bottom:1px solid var(--line);width:100%;background:0;border-left:0;border-right:0;border-top:0;
+  text-align:left;font:inherit;cursor:pointer}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--sunken)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;border-radius:6px;padding:4px 9px}
+.c-stated{background:var(--stated-bg);color:var(--stated-ink)}
+.c-shadow{background:var(--shadow-bg);color:var(--shadow-ink)}
+.c-live{background:var(--live-bg);color:var(--live-ink)}
+.c-done{background:var(--stated-bg);color:var(--ink-3)}
+.c-fail{background:var(--danger-bg);color:var(--danger-ink)}
+.row h3{font-size:14.5px;font-weight:600;margin-bottom:2px}
+.row p{margin:0;font-size:12.5px;color:var(--ink-2)}
+.row-meta{font-family:var(--mono);font-size:11px;color:var(--ink-3);text-align:right;white-space:nowrap}
+.row-meta b{display:block;font-weight:500;color:var(--ink-2);margin-bottom:2px}
+
+/* ============ ACTIVITY ============ */
+.day{font-family:var(--mono);font-size:11px;color:var(--ink-3);padding:20px 0 8px}
+.day:first-of-type{padding-top:0}
+.ev{display:grid;grid-template-columns:60px 18px 1fr;gap:13px;align-items:start;background:0;border:0;
+  width:100%;text-align:left;font:inherit;padding:10px 13px;border-radius:var(--r);cursor:pointer}
+.ev:hover{background:var(--surface)}
+.ev time{font-family:var(--mono);font-size:11px;color:var(--ink-3);padding-top:2px}
+.ev-dot{width:8px;height:8px;border-radius:50%;margin:6px auto 0;background:var(--stated)}
+.ev-dot.sh{background:var(--shadow)} .ev-dot.lv{background:var(--live)}
+.ev-dot.dn{background:var(--line-3)} .ev-dot.fl{background:var(--danger)}
+.ev b{display:block;font-size:14px;font-weight:500;margin-bottom:2px}
+.ev p{margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.fx{display:inline-block;margin-top:6px;font-family:var(--mono);font-size:10.5px;border-radius:5px;
+  padding:3px 8px;background:var(--stated-bg);color:var(--stated-ink)}
+.fx.sim{background:var(--shadow-bg);color:var(--shadow-ink)}
+.fx.real{background:var(--danger-bg);color:var(--danger-ink)}
+
+/* ============ SETTINGS ============ */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);margin-bottom:16px;
+  overflow:hidden;box-shadow:var(--shade)}
+.panel-hd{padding:15px 17px 13px;border-bottom:1px solid var(--line)}
+.panel-hd h2{font-size:15.5px;margin-bottom:2px}
+.panel-hd p{margin:0;font-size:13px;color:var(--ink-2)}
+.srow{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:14px 17px;
+  border-bottom:1px solid var(--line)}
+.srow:last-child{border-bottom:0}
+.srow b{display:block;font-size:14px;font-weight:500;margin-bottom:2px}
+.srow p{margin:0;font-size:12.5px;color:var(--ink-2);max-width:50ch}
+.sval{font-family:var(--mono);font-size:12px;color:var(--ink-2);white-space:nowrap}
+.mode-panel{border-color:var(--shadow-line)}
+[data-mode="live"] .mode-panel{border-color:var(--live-line)}
+.mode-panel .panel-hd{background:var(--shadow-bg);border-bottom-color:var(--shadow-line)}
+[data-mode="live"] .mode-panel .panel-hd{background:var(--live-bg);border-bottom-color:var(--live-line)}
+.mode-panel .panel-hd h2,.mode-panel .panel-hd p{color:var(--shadow-ink)}
+[data-mode="live"] .mode-panel .panel-hd h2,[data-mode="live"] .mode-panel .panel-hd p{color:var(--live-ink)}
+.choice{display:grid;grid-template-columns:1fr 1fr;gap:11px;padding:15px 17px}
+.opt{border:1px solid var(--line);border-radius:var(--r);padding:13px;background:var(--sunken);
+  text-align:left;cursor:pointer;font:inherit}
+.opt[aria-pressed="true"]{border-color:var(--shadow);background:var(--shadow-bg)}
+.opt.lv[aria-pressed="true"]{border-color:var(--live);background:var(--live-bg)}
+.opt b{display:block;font-size:14px;font-weight:600;margin-bottom:3px}
+.opt p{margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.later{display:flex;gap:7px;flex-wrap:wrap;padding:15px 17px}
+.later span{font-size:12px;font-family:var(--mono);color:var(--ink-3);border:1px dashed var(--line-2);
+  border-radius:6px;padding:5px 10px}
+
+/* ============ OVERLAYS ============ */
+.scrim{position:fixed;inset:0;background:rgba(10,12,16,.44);z-index:50;display:none}
+.scrim.on{display:block;animation:fade .18s ease}
+@keyframes fade{from{opacity:0}}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(520px,94vw);z-index:60;background:var(--surface);
+  border-left:1px solid var(--line);display:none;flex-direction:column}
+.drawer.on{display:flex;animation:slide .26s var(--ease)}
+@keyframes slide{from{transform:translateX(30px);opacity:0}}
+.dr-hd{padding:19px 21px 15px;border-bottom:1px solid var(--line)}
+.dr-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;margin-bottom:11px}
+.dr-hd h2{font-size:19.5px;font-weight:700;margin-bottom:4px}
+.dr-hd>p{margin:0;font-size:13.5px;color:var(--ink-2);line-height:1.55}
+.dr-body{flex:1;overflow-y:auto;padding:17px 21px}
+.dr-label{font-size:11.5px;font-weight:600;color:var(--ink-3);margin:0 0 9px}
+.step{display:grid;grid-template-columns:24px 1fr auto;gap:11px;align-items:start;padding:10px 0;
+  border-bottom:1px solid var(--line)}
+.step:last-of-type{border-bottom:0}
+.step i{font-style:normal;font-family:var(--mono);font-size:11px;color:var(--ink-3);padding-top:3px}
+.step span{font-size:13.5px;line-height:1.5}
+.step em{font-style:normal;font-family:var(--mono);font-size:10px;border-radius:5px;padding:3px 7px;
+  background:var(--stated-bg);color:var(--stated-ink);white-space:nowrap}
+.step em.w{background:var(--danger-bg);color:var(--danger-ink)}
+.step em.r{background:var(--live-bg);color:var(--live-ink)}
+.step.pend{opacity:.5}
+.effects{background:var(--sunken);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px;margin-top:18px}
+.effects h4{margin:0 0 8px;font-size:12.5px}
+.effects div{display:flex;justify-content:space-between;font-size:12.5px;padding:4px 0;color:var(--ink-2)}
+.effects div b{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--ink)}
+.effects div b.hot{color:var(--danger-ink)}
+.dr-foot{padding:15px 21px;border-top:1px solid var(--line);background:var(--sunken)}
+.dr-foot .btn{width:100%;margin-bottom:8px;padding:11px}
+.dr-alt{display:flex;gap:8px}
+.dr-alt .btn{flex:1;margin:0;font-size:13px;padding:9px}
+.dr-note{margin:10px 0 0;font-size:11.5px;color:var(--ink-3);text-align:center;line-height:1.5}
+
+/* command palette */
+.pal{position:fixed;top:13vh;left:50%;transform:translateX(-50%);width:min(580px,94vw);z-index:60;
+  background:var(--raise);border:1px solid var(--line-2);border-radius:14px;box-shadow:var(--shade-lg);
+  display:none;overflow:hidden}
+.pal.on{display:block;animation:pop .2s var(--ease)}
+@keyframes pop{from{transform:translateX(-50%) translateY(-9px);opacity:0}}
+.pal-in{display:flex;align-items:center;gap:11px;padding:15px 17px;border-bottom:1px solid var(--line)}
+.pal-in input{flex:1;background:0;border:0;font:inherit;font-size:16px;color:var(--ink);outline:none}
+.pal-in input::placeholder{color:var(--ink-3)}
+.pal-in span{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);border:1px solid var(--line-2);
+  border-radius:4px;padding:2px 6px}
+.pal-list{max-height:320px;overflow-y:auto;padding:6px}
+.pal-sec{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:9px 11px 5px}
+.pal-item{display:flex;align-items:center;gap:11px;width:100%;background:0;border:0;text-align:left;
+  font:inherit;padding:9px 11px;border-radius:8px;cursor:pointer}
+.pal-item:hover,.pal-item.sel{background:var(--canvas)}
+.pal-item b{font-size:13.5px;font-weight:500}
+.pal-item small{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.pal-none{padding:22px;text-align:center;font-size:13px;color:var(--ink-3)}
+
+/* confirm */
+.dlg{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(430px,94vw);z-index:70;
+  background:var(--raise);border-radius:14px;box-shadow:var(--shade-lg);display:none;overflow:hidden;
+  border:1px solid var(--line-2)}
+.dlg.on{display:block;animation:pop .2s var(--ease)}
+.dlg-b{padding:21px}
+.dlg-b h2{font-size:18px;margin-bottom:8px}
+.dlg-b p{margin:0 0 12px;font-size:13.5px;color:var(--ink-2);line-height:1.6}
+.dlg-warn{background:var(--live-bg);border:1px solid var(--live-line);border-radius:var(--r);
+  padding:11px 13px;font-size:12.5px;color:var(--live-ink);line-height:1.55}
+.dlg-f{display:flex;gap:8px;padding:14px 21px;border-top:1px solid var(--line);background:var(--sunken)}
+.dlg-f .btn{flex:1}
+</style>
+
+<main class="page" data-page="goals">
+  <div class="wrap">
+    <div class="head">
+      <div><h1>Goals</h1><p>Every outcome you've stated and where each one got to. The board shows the same thing spatially.</p></div>
+      <button class="btn sec" data-nav="board">Open the board</button>
+    </div>
+    <div class="filters" id="g-filters">
+      <button data-f="all" aria-pressed="true">All</button>
+      <button data-f="shadow" aria-pressed="false">Needs you</button>
+      <button data-f="live" aria-pressed="false">Running</button>
+      <button data-f="done" aria-pressed="false">Done</button>
+    </div>
+    <div class="list" id="goal-list"></div>
+  </div>
+</main>
+
+<main class="page" data-page="activity">
+  <div class="wrap" style="max-width:860px">
+    <div class="head"><div><h1>Activity</h1>
+      <p>Everything JARVIS did, in plain language. Each entry says whether anything actually left this machine.</p></div></div>
+    <div class="filters" id="a-filters">
+      <button data-f="all" aria-pressed="true">Everything</button>
+      <button data-f="real" aria-pressed="false">Live runs only</button>
+      <button data-f="mine" aria-pressed="false">Your approvals</button>
+    </div>
+    <div id="act-list"></div>
+  </div>
+</main>
+
+<main class="page" data-page="settings">
+  <div class="wrap" style="max-width:740px">
+    <div class="head"><div><h1>Settings</h1>
+      <p>Mode is the only setting that changes what JARVIS does in the real world. Everything else is preference.</p></div></div>
+
+    <div class="panel mode-panel">
+      <div class="panel-hd"><h2>Default mode</h2><p>What happens when you state an outcome without choosing.</p></div>
+      <div class="choice" id="mode-choice">
+        <button class="opt" data-m="shadow" aria-pressed="true"><b>Shadow</b>
+          <p>Plans against a copy of your data and shows you the steps. Nothing is written, sent or deleted.</p></button>
+        <button class="opt lv" data-m="live" aria-pressed="false"><b>Live</b>
+          <p>Still shows the plan and still asks before running. The difference is that approval executes.</p></button>
+      </div>
+      <div class="srow" style="border-top:1px solid var(--line)">
+        <div><b>Always confirm before a Live run</b><p>Recommended. Turning this off lets approved plans start without a second press.</p></div>
+        <span class="sval">on</span>
+      </div>
+      <div class="srow">
+        <div><b>Undo window</b><p>How long a Live run can be pulled back after you approve it.</p></div>
+        <span class="sval">7 seconds</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>Connection</h2><p>Where JARVIS reads from and writes to.</p></div>
+      <div class="srow"><div><b>Adapter</b><p>Mock returns fabricated data. Swap it once the Control API is up.</p></div><span class="sval">mock (exclusive)</span></div>
+      <div class="srow"><div><b>Control API</b><p>Live runs need this. Approving while it's offline queues the run instead.</p></div><span class="sval" style="color:var(--danger-ink)">not connected</span></div>
+      <div class="srow"><div><b>Runtime</b><p id="rt-note">Nothing is executing right now.</p></div><span class="sval" id="rt-val">idle</span></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><h2>Coming later</h2><p>Placeholders so you can see where they'll sit.</p></div>
+      <div class="later"><span>Skills</span><span>Knowledge</span><span>Schedules</span><span>Trusted actions</span><span>Voice</span></div>
+    </div>
+  </div>
+</main>
+
+<div class="scrim" id="scrim"></div>
+
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-title">
+  <div class="dr-hd">
+    <div class="dr-top"><span class="chip c-shadow" id="dr-chip">Shadow plan</span>
+      <button class="ico" id="dr-close" aria-label="Close">✕</button></div>
+    <h2 id="dr-title"></h2><p id="dr-sub"></p>
+  </div>
+  <div class="dr-body">
+    <p class="dr-label" id="dr-label">What it would do</p>
+    <div id="dr-steps"></div>
+    <div class="effects" id="dr-fx"></div>
+  </div>
+  <div class="dr-foot">
+    <button class="btn" id="dr-primary"></button>
+    <div class="dr-alt"><button class="btn sec">Edit a step</button><button class="btn sec" id="dr-discard">Discard plan</button></div>
+    <p class="dr-note">Approval applies to this plan only. It is never remembered for next time.</p>
+  </div>
+</aside>
+
+<div class="pal" id="pal" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="pal-in"><input id="pal-q" placeholder="Search goals, or type an outcome…" aria-label="Search"><span>esc</span></div>
+  <div class="pal-list" id="pal-list"></div>
+</div>
+
+<div class="dlg" id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlg-t">
+  <div class="dlg-b">
+    <h2 id="dlg-t">Switch the default to Live?</h2>
+    <p>New plans will still be shown to you and still need approval. What changes is that approving them will actually run.</p>
+    <div class="dlg-warn">Control API is not connected, so approved runs will queue until it comes up. You can switch back at any time.</div>
+  </div>
+  <div class="dlg-f"><button class="btn sec" id="dlg-no">Stay in Shadow</button><button class="btn" id="dlg-yes">Switch to Live</button></div>
+</div>
+
+<script>
+var S = {
+  mode:'shadow',
+  goals:[
+    {id:'khan',t:'Clear the Khan Traders thread',s:'Three mails unanswered since Tuesday.',dom:'comms',
+     stage:'stated',at:'12:20 PM',steps:[],fx:null},
+    {id:'weekly',t:'Weekly company overview',s:'Reads the ops sheet and the tracker, then drafts the Monday note.',
+     dom:'ops',stage:'shadow',at:'3:52 AM',
+     steps:[['Read the ops sheet for 1–7 Sep','read'],['Pull open tickets from the tracker','read'],
+       ['Compare both against last week\u2019s targets','compute'],['Flag anything that has slipped twice','compute'],
+       ['Draft the note in your usual format','compute'],['Save to Documents as "Week 37 overview"','writes']],
+     fx:[['Files written','1',1],['Messages sent','0',0],['Anything deleted','no',0],['Reversible','yes — keeps a copy',0]]},
+    {id:'invoices',t:'Reconcile September invoices',s:'Matches 38 lines against the ledger and flags what it can\u2019t.',
+     dom:'finance',stage:'shadow',at:'12:20 PM',
+     steps:[['Open the September ledger export','read'],['Load 38 invoice lines from the folder','read'],
+       ['Match each line by reference and amount','compute'],['Set aside anything that matches twice','compute'],
+       ['Save a reconciliation sheet to Documents','writes']],
+     fx:[['Files written','1',1],['Messages sent','0',0],['Anything deleted','no',0],['Reversible','yes',0]]},
+    {id:'backup',t:'Back up the client catalogue',s:'Copying the catalogue to a dated folder.',dom:'ops',
+     stage:'live',at:'1:04 PM',prog:4,
+     steps:[['Read the catalogue index','read'],['Create a dated folder','writes'],['Copy product data','writes'],
+       ['Copy images','writes'],['Verify every file copied','compute'],['Write a manifest','writes'],
+       ['Report what changed','compute']],
+     fx:[['Files written','1,240 so far',1],['Messages sent','0',0],['Anything deleted','no',0],['Reversible','yes — stop rolls back',0]]},
+    {id:'august',t:'August invoices reconciled',s:'41 of 43 lines matched. Two need your call.',dom:'finance',
+     stage:'done',at:'9 Sep',needs:2,
+     steps:[['Opened the August ledger','read'],['Loaded 43 invoice lines','read'],['Matched 41 lines','compute'],
+       ['Set aside 2 unmatched lines','compute'],['Saved the reconciliation sheet','writes']],
+     fx:[['Files written','1',1],['Messages sent','0',0],['Anything deleted','no',0],['Still needs you','2 lines',1]]},
+    {id:'w5',t:'Weekly company overview',s:'Saved to Documents. Not sent.',dom:'ops',stage:'done',at:'5 Sep',
+     steps:[['Read three sources','read'],['Drafted the note','compute'],['Saved to Documents','writes']],
+     fx:[['Files written','1',1],['Messages sent','0',0],['Anything deleted','no',0],['Reversible','yes',0]]},
+    {id:'sync',t:'Sync the price list to the store',s:'Stopped at step 3 — the store rejected two SKUs.',dom:'data',
+     stage:'failed',at:'8 Sep',
+     steps:[['Read the price list','read'],['Check every SKU exists','compute'],['Push 240 price updates','writes']],
+     fx:[['Files written','0',0],['Messages sent','0',0],['Rolled back','yes — nothing changed',0],['Needs a fix','2 SKUs',1]]}
+  ],
+  log:[
+    {d:'Today — 12 September',time:'1:04 PM',k:'lv',b:'You approved "Back up the client catalogue"',
+     p:'Moved from Shadow to Live. Started immediately.',fx:'7 steps · writes to disk',fxk:'real',mine:1,real:1},
+    {d:'Today — 12 September',time:'12:20 PM',k:'sh',b:'Planned "Reconcile September invoices" in Shadow',
+     p:'Five steps against a copy of the ledger. Waiting on your review.',fx:'simulated · nothing sent',fxk:'sim'},
+    {d:'Today — 12 September',time:'12:20 PM',k:'',b:'You stated "Clear the Khan Traders thread"',
+     p:'JARVIS started working out the steps.',mine:1},
+    {d:'Today — 12 September',time:'3:52 AM',k:'sh',b:'Planned "Weekly company overview" in Shadow',
+     p:'Six steps across three sources. Waiting on your review.',fx:'simulated · nothing sent',fxk:'sim'},
+    {d:'Wednesday — 9 September',time:'6:41 PM',k:'dn',b:'Finished "August invoices reconciled"',
+     p:'41 of 43 lines matched. Two were left for you — both look like the same duplicate reference.',
+     fx:'wrote 1 file · sent 0',fxk:'real',real:1},
+    {d:'Tuesday — 8 September',time:'4:12 PM',k:'fl',b:'"Sync the price list" stopped at step 3',
+     p:'The store rejected two SKUs, so JARVIS rolled the whole run back rather than push a partial update.',
+     fx:'rolled back · nothing changed',fxk:'real',real:1}
+  ]
+};
+var COL = {stated:'Stated',shadow:'Shadow plan',live:'Live',done:'Done'};
+var GLOSS = {stated:'you said it',shadow:'simulated only',live:'running for real',done:'last 7 days'};
+var timer=null, undoTimer=null, pending=null, prevCounts=[];
+
+function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function byStage(st){return S.goals.filter(function(g){
+  if(st==='done') return g.stage==='done'||g.stage==='failed'||g.stage==='discarded';
+  return g.stage===st})}
+function get(id){return S.goals.filter(function(g){return g.id===id})[0]}
+function writes(g){return g.steps.filter(function(s){return s[1]==='writes'}).length}
+function reads(g){return g.steps.filter(function(s){return s[1]==='read'}).length}
+
+var seen={};
+function open_(g,i,extra){
+  var k=g.id+':'+g.stage, cls='card'+(extra?' '+extra:''), sty='';
+  if(!seen[k]){
+    cls += seen[g.id] ? ' cross' : ' enter';
+    sty = ' style="--d:'+Math.min(i*45,200)+'ms"';
+    seen[k]=1; seen[g.id]=1;
+  }
+  return '<button class="'+cls+'"'+sty+' data-open="'+g.id+'">';
+}
+function cardHTML(g,i){
+  i=i||0;
+  var top='<div class="card-top"><span class="dom '+g.dom+'"></span><span>'+g.dom+'</span><time>'+g.at+'</time></div>';
+  var head='<h3>'+esc(g.t)+'</h3><p>'+esc(g.s)+'</p>';
+  if(g.stage==='stated')
+    return open_(g,i)+top+head+
+      '<span class="thinking"><span class="spin"></span>working out the steps…</span></button>';
+  if(g.stage==='shadow')
+    return open_(g,i)+top+head+
+      '<div class="tags"><span class="tag">'+g.steps.length+' steps</span><span class="tag">reads '+reads(g)+'</span>'+
+      (writes(g)?'<span class="tag w">writes '+writes(g)+'</span>':'<span class="tag">writes 0</span>')+'</div>'+
+      '<span class="act">Review and approve</span></button>';
+  if(g.stage==='live'){
+    var pc=Math.round(g.prog/g.steps.length*100);
+    return open_(g,i)+top+head+
+      '<div class="bar"><span style="width:'+pc+'%"></span></div>'+
+      '<p class="run"><span class="pulse"></span>Step '+g.prog+' of '+g.steps.length+' — '+esc(g.steps[g.prog-1][0].toLowerCase())+'</p>'+
+      '<span class="act sec">Stop and roll back</span></button>';
+  }
+  if(g.stage==='failed')
+    return open_(g,i,'done fail')+top+head+
+      '<div class="tags"><span class="tag w">rolled back</span></div><span class="act sec">See why</span></button>';
+  if(g.stage==='discarded')
+    return open_(g,i,'done')+top+'<h3>'+esc(g.t)+'</h3>'+
+      '<p>You discarded this plan at review. It never ran.</p></button>';
+  return open_(g,i,'done')+top+head+
+    (g.needs?'<div class="tags"><span class="tag w">'+g.needs+' need you</span></div><span class="act sec">Resolve '+g.needs+'</span>':'')+'</button>';
+}
+function updateLive(g){
+  var el=document.querySelector('[data-open="'+g.id+'"]');
+  if(!el){renderBoard();return}
+  var bar=el.querySelector('.bar span');
+  if(bar) bar.style.width=Math.round(g.prog/g.steps.length*100)+'%';
+  var run=el.querySelector('.run');
+  if(run) run.innerHTML='<span class="pulse"></span>Step '+g.prog+' of '+g.steps.length+
+    ' — '+esc(g.steps[g.prog-1][0].toLowerCase());
+}
+
+function renderBoard(){
+  var out='';
+  ['stated','shadow','live','done'].forEach(function(st){
+    var items=byStage(st), hc = st==='shadow'?' h-shadow':st==='live'?' h-live':'';
+    out+='<section class="col"><div class="col-hd'+hc+'"><b>'+COL[st]+'</b><i>'+items.length+'</i><u>'+GLOSS[st]+'</u></div>'+
+      '<div class="track '+(st==='shadow'?'t-shadow':st==='live'?'t-live':'')+'">';
+    out += items.length ? items.map(function(g,i){return cardHTML(g,i)}).join('')
+      : '<div class="empty">'+(st==='shadow'?'Nothing waiting on you':st==='live'?'Nothing running':
+         st==='stated'?'State an outcome below':'Nothing finished yet')+'</div>';
+    if(st==='done' && items.length) out+='<div class="empty">Four more from earlier this week</div>';
+    out+='</div></section>';
+  });
+  document.getElementById('board').innerHTML=out;
+  document.querySelectorAll('.col-hd i').forEach(function(n,ix){
+    if(prevCounts[ix]!==undefined && prevCounts[ix]!==n.textContent) n.classList.add('bump');
+    prevCounts[ix]=n.textContent;
+  });
+  var sh=byStage('shadow').length, lv=byStage('live').length;
+  document.getElementById('board-sub').textContent =
+    sh===0 ? (lv? 'Nothing waiting on you. '+lv+' plan running live.' : 'Nothing waiting on you.')
+    : sh+' plan'+(sh>1?'s are':' is')+' waiting in review. A plan only becomes real when you move it right.';
+  document.getElementById('n-goals').textContent=S.goals.length;
+  document.getElementById('rt-val').textContent = lv? 'running' : 'idle';
+  document.getElementById('rt-note').textContent = lv? lv+' plan executing now.' : 'Nothing is executing right now.';
+}
+
+function renderGoals(f){
+  f=f||'all';
+  var list=S.goals.filter(function(g){
+    if(f==='all')return 1; if(f==='done')return g.stage==='done'||g.stage==='failed'||g.stage==='discarded';
+    return g.stage===f});
+  var CH={stated:['c-stated','Stated'],shadow:['c-shadow','Shadow plan'],live:['c-live','Live'],
+    done:['c-done','Done'],failed:['c-fail','Rolled back'],discarded:['c-done','Discarded']};
+  var MET={stated:'planning',shadow:'waiting on you',live:'running',done:'ran live',failed:'stopped',discarded:'never ran'};
+  document.getElementById('goal-list').innerHTML = list.length ? list.map(function(g,i){
+    var c=CH[g.stage];
+    return '<button class="row" style="--d:'+Math.min(i*30,180)+'ms" data-open="'+g.id+'"><span class="chip '+c[0]+'">'+c[1]+'</span>'+
+      '<div><h3>'+esc(g.t)+'</h3><p>'+esc(g.s)+'</p></div>'+
+      '<div class="row-meta"><b>'+MET[g.stage]+'</b>'+g.at+'</div></button>';
+  }).join('') : '<div class="empty" style="margin:0;border:0">Nothing here</div>';
+}
+
+function renderAct(f){
+  f=f||'all';
+  var list=S.log.filter(function(e){return f==='all'||(f==='real'&&e.real)||(f==='mine'&&e.mine)});
+  var out='',day='';
+  list.forEach(function(e){
+    if(e.d!==day){day=e.d;out+='<p class="day">'+day+'</p>'}
+    out+='<button class="ev"><time>'+e.time+'</time><span class="ev-dot '+e.k+'"></span><div><b>'+esc(e.b)+'</b>'+
+      '<p>'+esc(e.p)+'</p>'+(e.fx?'<span class="fx '+e.fxk+'">'+e.fx+'</span>':'')+'</div></button>';
+  });
+  document.getElementById('act-list').innerHTML = out || '<div class="empty" style="border:0">Nothing matches</div>';
+}
+
+/* ---- the transition that matters ---- */
+function approve(id){
+  var g=get(id); if(!g||g.stage!=='shadow')return;
+  closeDrawer();
+  var el=document.querySelector('[data-open="'+id+'"]');
+  if(el) el.classList.add('leave');
+  setTimeout(function(){
+    g.stage='live'; g.prog=1; g.approvedAt=nowStr();
+    S.log.unshift({d:'Today — 12 September',time:g.approvedAt,k:'lv',
+      b:'You approved "'+g.t+'"',p:'Moved from Shadow to Live. Started immediately.',
+      fx:g.steps.length+' steps · '+(writes(g)?'writes to disk':'read only'),fxk:'real',mine:1,real:1,undoable:1});
+    renderBoard(); renderAct(curAct); renderGoals(curGoal);
+    var tr=document.querySelector('.t-live'); if(tr) tr.classList.add('flash');
+    showToast('<b>Approved.</b> "'+esc(g.t)+'" is running live.', id);
+    tick(id);
+  },190);
+}
+function undo(id){
+  var g=get(id); if(!g)return;
+  clearInterval(timer); timer=null;
+  g.stage='shadow'; delete g.prog; delete g.approvedAt;
+  delete seen[g.id+':live']; delete seen[g.id+':shadow'];
+  S.log=S.log.filter(function(e){return !e.undoable});
+  hideToast(); renderBoard(); renderAct(curAct); renderGoals(curGoal);
+}
+function tick(id){
+  clearInterval(timer);
+  timer=setInterval(function(){
+    var g=get(id);
+    if(!g||g.stage!=='live'){clearInterval(timer);return}
+    if(g.prog>=g.steps.length){
+      clearInterval(timer); g.stage='done'; g.s='Finished. '+writes(g)+' file'+(writes(g)===1?'':'s')+' written, nothing sent.';
+      S.log.unshift({d:'Today — 12 September',time:nowStr(),k:'dn',b:'Finished "'+g.t+'"',
+        p:'All '+g.steps.length+' steps completed.',fx:'wrote '+writes(g)+' · sent 0',fxk:'real',real:1});
+      renderBoard(); renderAct(curAct); renderGoals(curGoal); return;
+    }
+    g.prog++; updateLive(g);
+  },2200);
+}
+function nowStr(){var d=new Date(),h=d.getHours(),m=d.getMinutes();
+  return (h%12||12)+':'+(m<10?'0':'')+m+' '+(h<12?'AM':'PM')}
+
+function showToast(html,id){
+  var t=document.getElementById('toast');
+  document.getElementById('toast-text').innerHTML=html;
+  pending=id; t.classList.add('on');
+  var ring=t.querySelector('.p'); ring.style.animation='none'; void ring.offsetWidth; ring.style.animation='';
+  clearTimeout(undoTimer); undoTimer=setTimeout(hideToast,7000);
+}
+function hideToast(){document.getElementById('toast').classList.remove('on');pending=null}
+
+/* ---- drawer ---- */
+var scrim=document.getElementById('scrim'),drawer=document.getElementById('drawer');
+function openDrawer(id){
+  var g=get(id); if(!g)return;
+  var CH={stated:['c-stated','Stated'],shadow:['c-shadow','Shadow plan'],live:['c-live','Live'],
+    done:['c-done','Done'],failed:['c-fail','Rolled back'],discarded:['c-done','Discarded']};
+  var c=CH[g.stage], chip=document.getElementById('dr-chip');
+  chip.className='chip '+c[0]; chip.textContent=c[1];
+  document.getElementById('dr-title').textContent=g.t;
+  var sub={stated:'You stated this at '+g.at+'. JARVIS is still working out the steps.',
+    shadow:g.steps.length+' steps. Simulated at '+g.at+' against a copy of your data.',
+    live:'You approved this at '+(g.approvedAt||g.at)+'. Step '+g.prog+' of '+g.steps.length+'.',
+    done:'Ran live on '+g.at+'.',failed:'Stopped on '+g.at+'. Everything was rolled back.',
+    discarded:'You discarded this at review on '+g.at+'.'}[g.stage];
+  document.getElementById('dr-sub').textContent=sub;
+  document.getElementById('dr-label').textContent =
+    g.stage==='shadow'?'What it would do':g.stage==='live'?'What it is doing':'What it did';
+  document.getElementById('dr-steps').innerHTML = g.steps.length? g.steps.map(function(s,i){
+    var n=String(i+1); if(n.length<2)n='0'+n;
+    var cls=s[1]==='writes'?' class="w"':'';
+    var pend = g.stage==='live' && (i+1)>g.prog ? ' pend':'';
+    var tagTxt = (g.stage==='live'&&(i+1)===g.prog)?'running':s[1];
+    var tagCls = (g.stage==='live'&&(i+1)===g.prog)?' class="r"':cls;
+    return '<div class="step'+pend+'"><i>'+n+'</i><span>'+esc(s[0])+'</span><em'+tagCls+'>'+tagTxt+'</em></div>';
+  }).join('') : '<div class="step"><i>—</i><span class="thinking"><span class="spin"></span>drafting the plan…</span><em>working</em></div>';
+  document.getElementById('dr-fx').innerHTML = g.fx?
+    '<h4>'+(g.stage==='shadow'?'If you approve this':'What this touched')+'</h4>'+g.fx.map(function(f){
+      return '<div><span>'+f[0]+'</span><b'+(f[2]?' class="hot"':'')+'>'+f[1]+'</b></div>'}).join('')
+    : '<h4>Effects</h4><div><span>Not known yet</span><b>—</b></div>';
+  var pb=document.getElementById('dr-primary');
+  pb.textContent={stated:'Cancel this goal',shadow:'Approve and run Live',live:'Stop and roll back',
+    done:g.needs?'Resolve the '+g.needs+' open lines':'Open the result',failed:'Retry with a fix',
+    discarded:'Plan it again'}[g.stage];
+  pb.className='btn'+(g.stage==='live'||g.stage==='stated'?' sec':'');
+  pb.dataset.act = g.stage==='shadow'?'approve':'none'; pb.dataset.id=id;
+  document.getElementById('dr-discard').style.display = g.stage==='shadow'?'':'none';
+  scrim.classList.add('on'); drawer.classList.add('on');
+  document.getElementById('dr-close').focus();
+}
+function closeDrawer(){scrim.classList.remove('on');drawer.classList.remove('on')}
+
+/* ---- palette ---- */
+var pal=document.getElementById('pal'),palQ=document.getElementById('pal-q'),palIdx=0,palHits=[];
+function openPal(){pal.classList.add('on');scrim.classList.add('on');palQ.value='';renderPal('');palQ.focus()}
+function closePal(){pal.classList.remove('on');scrim.classList.remove('on')}
+function renderPal(q){
+  q=q.toLowerCase().trim();
+  palHits=S.goals.filter(function(g){return !q||g.t.toLowerCase().indexOf(q)>-1||g.dom.indexOf(q)>-1})
+    .map(function(g){return {k:'goal',id:g.id,label:g.t,meta:g.stage}});
+  var acts=[{k:'nav',id:'board',label:'Go to Board',meta:'⌘1'},{k:'nav',id:'goals',label:'Go to Goals',meta:'⌘2'},
+    {k:'nav',id:'activity',label:'Go to Activity',meta:'⌘3'},{k:'nav',id:'settings',label:'Go to Settings',meta:'⌘4'}]
+    .filter(function(a){return !q||a.label.toLowerCase().indexOf(q)>-1});
+  if(q) palHits=palHits.concat(acts).concat([{k:'new',id:q,label:'State "'+q+'" as an outcome',meta:'enter'}]);
+  else palHits=palHits.concat(acts);
+  palIdx=0;
+  document.getElementById('pal-list').innerHTML = palHits.length? (function(){
+    var out='',last='';
+    palHits.forEach(function(h,i){
+      var sec=h.k==='goal'?'Goals':h.k==='nav'?'Go to':'Create';
+      if(sec!==last){out+='<p class="pal-sec">'+sec+'</p>';last=sec}
+      out+='<button class="pal-item'+(i===0?' sel':'')+'" data-i="'+i+'"><b>'+esc(h.label)+'</b><small>'+h.meta+'</small></button>';
+    }); return out})() : '<p class="pal-none">Nothing matches</p>';
+}
+function runPal(i){
+  var h=palHits[i]; if(!h)return; closePal();
+  if(h.k==='goal') openDrawer(h.id);
+  else if(h.k==='nav') go(h.id);
+  else {document.getElementById('say').value=h.id; go('board'); document.getElementById('say').focus()}
+}
+
+/* ---- nav ---- */
+var curGoal='all',curAct='all';
+function go(to){
+  document.querySelectorAll('.nav button').forEach(function(b){
+    if(b.dataset.nav===to)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current')});
+  document.querySelectorAll('.page').forEach(function(p){p.classList.toggle('on',p.dataset.page===to)});
+  closeDrawer(); window.scrollTo(0,0);
+}
+
+/* ---- mode ---- */
+var dlg=document.getElementById('dlg');
+function setMode(m){
+  S.mode=m; document.documentElement.dataset.mode=m;
+  document.getElementById('guard-name').textContent = m==='live'?'Live':'Shadow';
+  document.getElementById('guard-note').textContent = m==='live'
+    ? 'Approved plans will actually run' : 'Nothing reaches the outside world';
+  document.getElementById('guard-switch').textContent = m==='live'?'Back to Shadow':'Switch to Live';
+  document.querySelectorAll('#mode-choice button').forEach(function(b){
+    b.setAttribute('aria-pressed',String(b.dataset.m===m))});
+  document.querySelectorAll('#seg button').forEach(function(b){
+    b.setAttribute('aria-pressed',String(b.dataset.m===m))});
+}
+
+/* ---- events ---- */
+document.addEventListener('click',function(e){
+  var t=e.target;
+  var pi=t.closest('.pal-item'); if(pi){runPal(+pi.dataset.i);return}
+  var op=t.closest('[data-open]'); if(op){openDrawer(op.dataset.open);return}
+  var nv=t.closest('[data-nav]'); if(nv){go(nv.dataset.nav);return}
+  var gf=t.closest('#g-filters button'); if(gf){curGoal=gf.dataset.f;
+    gf.parentNode.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b===gf))});
+    renderGoals(curGoal);return}
+  var af=t.closest('#a-filters button'); if(af){curAct=af.dataset.f;
+    af.parentNode.querySelectorAll('button').forEach(function(b){b.setAttribute('aria-pressed',String(b===af))});
+    renderAct(curAct);return}
+  var sg=t.closest('#seg button'); if(sg){setMode(sg.dataset.m);return}
+  var mo=t.closest('#mode-choice button'); if(mo){
+    if(mo.dataset.m==='live'&&S.mode!=='live'){dlg.classList.add('on');scrim.classList.add('on')} else setMode('shadow');return}
+});
+document.getElementById('dr-primary').addEventListener('click',function(){
+  if(this.dataset.act==='approve') approve(this.dataset.id); else closeDrawer()});
+document.getElementById('dr-discard').addEventListener('click',function(){
+  var id=document.getElementById('dr-primary').dataset.id,g=get(id);
+  if(g){g.stage='discarded';closeDrawer();renderBoard();renderGoals(curGoal)}});
+document.getElementById('dr-close').addEventListener('click',closeDrawer);
+document.getElementById('undo').addEventListener('click',function(){undo(pending)});
+document.getElementById('open-cmd').addEventListener('click',openPal);
+document.getElementById('guard-switch').addEventListener('click',function(){
+  if(S.mode==='live'){setMode('shadow');return}
+  dlg.classList.add('on');scrim.classList.add('on')});
+document.getElementById('dlg-yes').addEventListener('click',function(){
+  setMode('live');dlg.classList.remove('on');scrim.classList.remove('on')});
+document.getElementById('dlg-no').addEventListener('click',function(){
+  dlg.classList.remove('on');scrim.classList.remove('on')});
+scrim.addEventListener('click',function(){closeDrawer();closePal();dlg.classList.remove('on');scrim.classList.remove('on')});
+palQ.addEventListener('input',function(){renderPal(this.value)});
+document.getElementById('plan-it').addEventListener('click',function(){
+  var v=document.getElementById('say').value.trim(); if(!v)return;
+  var id='g'+Date.now();
+  S.goals.unshift({id:id,t:v.charAt(0).toUpperCase()+v.slice(1),s:'You stated this just now.',dom:'ops',
+    stage:'stated',at:nowStr(),steps:[],fx:null});
+  S.log.unshift({d:'Today — 12 September',time:nowStr(),k:'',b:'You stated "'+v+'"',
+    p:'JARVIS started working out the steps.',mine:1});
+  document.getElementById('say').value=''; renderBoard(); renderGoals(curGoal); renderAct(curAct);
+  setTimeout(function(){
+    var g=get(id); if(!g||g.stage!=='stated')return;
+    g.stage='shadow'; g.s='Six steps across three sources. Ready for your review.';
+    g.steps=[['Read the sources you usually use','read'],['Pull anything that changed this week','read'],
+      ['Work out what matters','compute'],['Draft it in your usual format','compute'],['Save to Documents','writes']];
+    g.fx=[['Files written','1',1],['Messages sent','0',0],['Anything deleted','no',0],['Reversible','yes',0]];
+    S.log.unshift({d:'Today — 12 September',time:nowStr(),k:'sh',b:'Planned "'+g.t+'" in Shadow',
+      p:'Five steps. Waiting on your review.',fx:'simulated · nothing sent',fxk:'sim'});
+    renderBoard(); renderGoals(curGoal); renderAct(curAct);
+  },3200);
+});
+document.getElementById('theme').addEventListener('click',function(){
+  var r=document.documentElement; r.dataset.theme = r.dataset.theme==='dark'?'light':'dark'});
+document.addEventListener('keydown',function(e){
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();openPal();return}
+  if(e.key==='Escape'){closeDrawer();closePal();dlg.classList.remove('on');scrim.classList.remove('on');return}
+  if(pal.classList.contains('on')){
+    if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();
+      palIdx=Math.max(0,Math.min(palHits.length-1,palIdx+(e.key==='ArrowDown'?1:-1)));
+      document.querySelectorAll('.pal-item').forEach(function(x){x.classList.toggle('sel',+x.dataset.i===palIdx)});
+    } else if(e.key==='Enter'){e.preventDefault();runPal(palIdx)}
+  }
+});
+
+document.addEventListener('animationend',function(e){
+  e.target.classList.remove('enter','cross','bump','flash','rowIn');
+});
+
+renderBoard(); renderGoals('all'); renderAct('all'); setMode('shadow');
+</script>
+</body>
+</html>
