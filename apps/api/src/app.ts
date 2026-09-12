@@ -7,6 +7,7 @@ import {
   getJarvisRuntime,
   listGoalSummaries,
   setJarvisAdapter,
+  setJarvisConnection,
   type AdapterKind,
 } from "../../../src/runtime.js";
 import { getEscalationStore } from "../../../src/escalation/store.js";
@@ -19,7 +20,15 @@ import {
 } from "../../../src/trust/principals.js";
 import { classifyProposal } from "../../../src/policy/classify.js";
 import { PHASE1_MANIFESTS } from "../../../src/tools/registry.js";
-import { resolveControlApiBase } from "../../../src/config.js";
+import { getControlApiBase, getOsProjectId } from "../../../src/connection.js";
+import {
+  buildWmNow,
+  listSpecialistStubs,
+  listWmEntities,
+} from "../../../src/world-model/project.js";
+import { listQuarantine } from "../../../src/world-model/quarantine.js";
+import { buildPortfolio } from "../../../src/portfolio/project.js";
+import { computerActBlocked, getComputerSnapshot } from "../../../src/computer/observe.js";
 
 export function createApp() {
   const app = new Hono();
@@ -34,17 +43,19 @@ export function createApp() {
   );
 
   app.get("/health", (c) => {
-    const { adapterName, dbPath, controlApiBase } = getJarvisRuntime();
+    const { adapterName, dbPath, controlApiBase, projectId } = getJarvisRuntime();
     return c.json({
       ok: true,
       service: "jarvis-api",
-      phase: "E",
+      phase: "H",
       adapter: adapterName,
       mode_default: "shadow",
       kill_switch: killSwitchStatus(),
       persistence: dbPath === ":memory:" ? "memory" : "sqlite",
       control_api: controlApiBase,
+      project_id: projectId,
       observation_only: adapterName === "mock",
+      computer_plane: "observe",
     });
   });
 
@@ -52,12 +63,10 @@ export function createApp() {
     const { adapterName, dbPath, controlApiBase } = getJarvisRuntime();
     return c.json({
       product: "JARVIS",
-      phase: "E",
+      phase: "H",
       adapter: adapterName,
-      note:
-        adapterName === "umer-read"
-          ? "Phase E: Strong-confirm LIVE can POST work-graph plan; Shadow stays local noop"
-          : "Mock adapter — Live promote simulates without Control API",
+      note: "Phase H: computer observe-only (no click/type/shell)",
+      computer_plane: "observe",
       control_api: controlApiBase,
       persistence: dbPath === ":memory:" ? "memory" : "sqlite",
       observation_only: adapterName === "mock",
@@ -130,7 +139,7 @@ export function createApp() {
       const result = await engine.promoteToLive({
         goalId: c.req.param("id"),
         confirm: body.confirm ?? "",
-        project_id: body.project_id || process.env.JARVIS_OS_PROJECT_ID,
+        project_id: body.project_id || getOsProjectId() || undefined,
         approver: body.approver,
       });
       return c.json({
@@ -200,23 +209,169 @@ export function createApp() {
     return c.json(snap, snap.reachable ? 200 : 503);
   });
 
+  // ——— Phase F: World Model ———
+
+  app.get("/v1/wm/now", async (c) => {
+    const { engine, adapter, adapterName } = getJarvisRuntime();
+    const snap = await buildOsSnapshot();
+    const now = buildWmNow({
+      engine,
+      adapter,
+      adapterName,
+      os_run_count: snap.state?.active_run_ids.length ?? 0,
+      pending_gates: snap.state?.pending_gate_count ?? 0,
+    });
+    return c.json({ ...now, os_reachable: snap.reachable });
+  });
+
+  app.get("/v1/wm/entities", async (c) => {
+    const { engine, adapter, adapterName } = getJarvisRuntime();
+    const q = c.req.query("q") ?? undefined;
+    const types = c.req.query("types")?.split(",").filter(Boolean);
+    const entities = listWmEntities({ engine, adapter, q, types });
+    if (!types || types.includes("specialist")) {
+      const specs = await listSpecialistStubs(adapter);
+      const needle = (q ?? "").trim().toLowerCase();
+      for (const s of specs) {
+        if (
+          !needle ||
+          s.title.toLowerCase().includes(needle) ||
+          s.entity_id.toLowerCase().includes(needle)
+        ) {
+          entities.push(s);
+        }
+      }
+    }
+    return c.json({
+      adapter: adapterName,
+      entities,
+      quarantine: listQuarantine().slice(0, 20),
+    });
+  });
+
+  app.get("/v1/portfolio", async (c) => {
+    const { engine, adapterName } = getJarvisRuntime();
+    const snap = await buildOsSnapshot();
+    const domain = c.req.query("domain") ?? undefined;
+    const portfolio = buildPortfolio({
+      engine,
+      domainFilter: domain,
+      os: {
+        reachable: snap.reachable,
+        run_count: snap.state?.active_run_ids.length ?? 0,
+        pending_gates: snap.state?.pending_gate_count ?? 0,
+      },
+    });
+    return c.json({ adapter: adapterName, ...portfolio });
+  });
+
+  // ——— Phase H: computer observe ———
+
+  app.get("/v1/computer/snapshot", (c) => {
+    return c.json(getComputerSnapshot());
+  });
+
+  app.post("/v1/computer/act", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { action?: string };
+    try {
+      computerActBlocked(body.action ?? "unknown");
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "act blocked", act_enabled: false }, 403);
+    }
+  });
+
   app.post("/v1/adapter", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { adapter?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      adapter?: string;
+      control_api_base?: string;
+      project_id?: string;
+    };
     const raw = body.adapter?.trim().toLowerCase();
     let kind: AdapterKind | null = null;
     if (raw === "mock") kind = "mock";
     if (raw === "umer-read" || raw === "umer") kind = "umer-read";
+    if (!kind && (body.control_api_base || body.project_id)) {
+      kind = getJarvisRuntime().adapterName;
+    }
     if (!kind) return c.json({ error: "adapter must be mock|umer-read" }, 400);
-    const rt = setJarvisAdapter(kind);
+    const rt = setJarvisConnection({
+      adapter: kind,
+      control_api_base: body.control_api_base,
+      project_id: body.project_id,
+    });
     return c.json({
       adapter: rt.adapterName,
       control_api: rt.controlApiBase,
-      observation_only: true,
+      project_id: rt.projectId,
+      observation_only: rt.adapterName === "mock",
       note:
         kind === "umer-read"
-          ? `Observing ${resolveControlApiBase()} — GET only; Live startRun blocked until Phase E`
+          ? `Connected to ${getControlApiBase()}${rt.projectId ? `; Live project=${rt.projectId}` : " — set project_id for Live"}`
           : "Mock adapter — no Control API calls",
     });
+  });
+
+  app.get("/v1/connection", (c) => {
+    const { adapterName, controlApiBase, projectId } = getJarvisRuntime();
+    return c.json({
+      adapter: adapterName,
+      control_api: controlApiBase,
+      control_api_base: getControlApiBase(),
+      project_id: projectId,
+    });
+  });
+
+  app.get("/v1/os/projects", async (c) => {
+    const base = getControlApiBase();
+    try {
+      const [catalogRes, workRes] = await Promise.all([
+        fetch(`${base}/v1/projects`),
+        fetch(`${base}/v1/work-projects`),
+      ]);
+      const catalog = catalogRes.ok
+        ? ((await catalogRes.json()) as { projects?: Array<Record<string, unknown>> })
+        : { projects: [] };
+      const work = workRes.ok
+        ? ((await workRes.json()) as { projects?: Array<Record<string, unknown>> })
+        : { projects: [] };
+
+      const work_projects = (work.projects ?? []).map((p) => ({
+        project_id: String(p.projectId ?? p.id ?? ""),
+        name: String(p.name ?? p.projectId ?? ""),
+        status: String(p.status ?? ""),
+        registry_project_id: p.registryProjectId ? String(p.registryProjectId) : undefined,
+        source: "work-projects" as const,
+        use_for_live: true,
+      }));
+
+      const catalog_projects = (catalog.projects ?? []).map((p) => ({
+        project_id: String(p.projectId ?? ""),
+        name: String(p.name ?? p.projectId ?? ""),
+        status: String(p.status ?? ""),
+        on_disk: Boolean(p.onDisk),
+        source: "catalog" as const,
+        use_for_live: false,
+        note: "Catalog id — prefer a work-projects id for POST /work-graph/.../plan",
+      }));
+
+      return c.json({
+        control_api: base,
+        selected_project_id: getOsProjectId(),
+        work_projects,
+        catalog_projects,
+        hint: "Use work_projects[].project_id for Live promote (work-graph plan).",
+      });
+    } catch (e) {
+      return c.json(
+        {
+          error: e instanceof Error ? e.message : "Failed to list OS projects",
+          control_api: base,
+          work_projects: [],
+          catalog_projects: [],
+        },
+        503,
+      );
+    }
   });
 
   // ——— Phase B: tools / trust / escalations ———

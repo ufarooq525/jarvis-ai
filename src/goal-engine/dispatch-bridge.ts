@@ -7,6 +7,7 @@ import type { MemoryStore } from "../store/memory-store.js";
 import { buildDelegationChain, JARVIS_PRINCIPAL } from "../trust/principals.js";
 import { newId, nowIso } from "../util/ids.js";
 import { isKillSwitchEngaged } from "../kill-switch.js";
+import { quarantineAdapterText } from "../world-model/quarantine.js";
 
 export class DispatchBridge {
   constructor(
@@ -121,7 +122,11 @@ export class DispatchBridge {
       run_id: correlation.jarvis_run_id,
       kind: "simulation",
       principal_id: JARVIS_PRINCIPAL,
-      payload_summary: sim.predicted_summary,
+      payload_summary: quarantineAdapterText({
+        source: "adapter.proposeRun",
+        text: sim.predicted_summary,
+        goal_id: input.goal.id,
+      }).safe_summary,
       correlation: { decision_id: input.decision_id, policy_verdict_id: verdict.id },
     });
 
@@ -131,7 +136,11 @@ export class DispatchBridge {
       run_id: correlation.jarvis_run_id,
       kind: "tool_invocation",
       principal_id: JARVIS_PRINCIPAL,
-      payload_summary: osRecord.summary,
+      payload_summary: quarantineAdapterText({
+        source: "adapter.startRun",
+        text: osRecord.summary,
+        goal_id: input.goal.id,
+      }).safe_summary,
       correlation: {
         decision_id: input.decision_id,
         policy_verdict_id: verdict.id,
@@ -255,7 +264,11 @@ export class DispatchBridge {
       run_id: correlation.jarvis_run_id,
       kind: "simulation",
       principal_id: JARVIS_PRINCIPAL,
-      payload_summary: sim.predicted_summary,
+      payload_summary: quarantineAdapterText({
+        source: "adapter.proposeRun",
+        text: sim.predicted_summary,
+        goal_id: input.goal.id,
+      }).safe_summary,
       correlation: { decision_id: input.decision_id, policy_verdict_id: verdict.id },
     });
 
@@ -265,7 +278,11 @@ export class DispatchBridge {
       run_id: correlation.jarvis_run_id,
       kind: "tool_invocation",
       principal_id: JARVIS_PRINCIPAL,
-      payload_summary: osRecord.summary,
+      payload_summary: quarantineAdapterText({
+        source: "adapter.startRun",
+        text: osRecord.summary,
+        goal_id: input.goal.id,
+      }).safe_summary,
       correlation: {
         decision_id: input.decision_id,
         policy_verdict_id: verdict.id,

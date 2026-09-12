@@ -6,15 +6,23 @@ import { MockOsRuntimeAdapter } from "./adapters/mock/mock-os-runtime-adapter.js
 import { UmerOsRuntimeAdapter } from "./adapters/umer-os/umer-os-runtime-adapter.js";
 import { resetEscalationStore } from "./escalation/store.js";
 import { resetKillSwitchState } from "./trust/kill-switch-control.js";
+import { resetQuarantine } from "./world-model/quarantine.js";
 import { openJarvisDb, type JarvisDb, resolveJarvisDbPath } from "./db/client.js";
 import { PersistedStore } from "./store/persisted-store.js";
 import { PersistedEvidenceChain } from "./evidence/persisted-chain.js";
 import { PersistedDecisionJournal } from "./journal/persisted-journal.js";
 import {
-  resolveAdapterKind,
-  resolveControlApiBase,
   type AdapterKind,
 } from "./config.js";
+import {
+  getActiveAdapterKind,
+  getConnectionConfig,
+  getControlApiBase,
+  getOsProjectId,
+  resetConnectionOverrides,
+  setConnectionOverrides,
+  bindConnectionDb,
+} from "./connection.js";
 
 export type { AdapterKind };
 
@@ -24,31 +32,29 @@ export interface JarvisRuntime {
   adapter: OsRuntimeAdapter;
   adapterName: AdapterKind;
   controlApiBase: string | null;
+  projectId: string | null;
   db: JarvisDb;
   dbPath: string;
 }
 
 let singleton: JarvisRuntime | null = null;
-/** Override for tests / Settings switcher (null = use env). */
-let adapterOverride: AdapterKind | null = null;
-
-export function getActiveAdapterKind(): AdapterKind {
-  return adapterOverride ?? resolveAdapterKind();
-}
 
 function createAdapter(kind: AdapterKind): OsRuntimeAdapter {
   if (kind === "umer-read") {
-    return new UmerOsRuntimeAdapter({ baseUrl: resolveControlApiBase() });
+    return new UmerOsRuntimeAdapter({ baseUrl: getControlApiBase() });
   }
   return new MockOsRuntimeAdapter();
 }
 
 function buildRuntime(
   dbPath = resolveJarvisDbPath(),
-  kind: AdapterKind = getActiveAdapterKind(),
+  kind?: AdapterKind,
 ): JarvisRuntime {
   const db = openJarvisDb(dbPath);
-  const adapter = createAdapter(kind);
+  bindConnectionDb(db, dbPath);
+  const resolved = kind ?? getActiveAdapterKind();
+  const adapter = createAdapter(resolved);
+  const conn = getConnectionConfig();
   return {
     engine: new GoalEngineCtor(adapter, {
       store: new PersistedStore(db),
@@ -56,8 +62,9 @@ function buildRuntime(
       journal: new PersistedDecisionJournal(db),
     }),
     adapter,
-    adapterName: kind,
-    controlApiBase: kind === "umer-read" ? resolveControlApiBase() : null,
+    adapterName: resolved,
+    controlApiBase: resolved === "umer-read" ? conn.control_api_base : null,
+    projectId: conn.project_id,
     db,
     dbPath,
   };
@@ -69,11 +76,17 @@ export function getJarvisRuntime(): JarvisRuntime {
 }
 
 /**
- * Swap adapter while keeping the same SQLite file (dev Settings switcher).
- * Does not change process.env; uses in-memory override.
+ * Swap adapter / Control API / project while keeping the same SQLite file.
  */
-export function setJarvisAdapter(kind: AdapterKind): JarvisRuntime {
-  adapterOverride = kind;
+export function setJarvisAdapter(
+  kind: AdapterKind,
+  opts?: { control_api_base?: string; project_id?: string },
+): JarvisRuntime {
+  setConnectionOverrides({
+    adapter: kind,
+    control_api_base: opts?.control_api_base,
+    project_id: opts?.project_id,
+  });
   const path = singleton?.dbPath ?? resolveJarvisDbPath();
   try {
     singleton?.db.close();
@@ -84,6 +97,19 @@ export function setJarvisAdapter(kind: AdapterKind): JarvisRuntime {
   return singleton;
 }
 
+/** Update project id without rebuilding stores when possible — still rebuild adapter if base changes. */
+export function setJarvisConnection(opts: {
+  adapter?: AdapterKind;
+  control_api_base?: string;
+  project_id?: string;
+}): JarvisRuntime {
+  const kind = opts.adapter ?? getActiveAdapterKind();
+  return setJarvisAdapter(kind, {
+    control_api_base: opts.control_api_base ?? getControlApiBase(),
+    project_id: opts.project_id ?? getOsProjectId() ?? undefined,
+  });
+}
+
 /** Test helper — drop process singleton (fresh :memory: under Vitest). */
 export function resetJarvisRuntime(opts?: { dbPath?: string; adapter?: AdapterKind }): void {
   try {
@@ -92,9 +118,11 @@ export function resetJarvisRuntime(opts?: { dbPath?: string; adapter?: AdapterKi
     /* already closed */
   }
   singleton = null;
-  adapterOverride = opts?.adapter ?? null;
+  resetConnectionOverrides();
+  if (opts?.adapter) setConnectionOverrides({ adapter: opts.adapter });
   resetEscalationStore();
   resetKillSwitchState();
+  resetQuarantine();
   if (opts?.dbPath || opts?.adapter) {
     singleton = buildRuntime(opts?.dbPath ?? resolveJarvisDbPath(), getActiveAdapterKind());
   }
@@ -177,6 +205,7 @@ export function buildReplay(engine: GoalEngine, decision_id: string): ReplayBund
 export interface OsSnapshotDto {
   adapter: AdapterKind;
   control_api: string | null;
+  project_id: string | null;
   observation_only: boolean;
   reachable: boolean;
   error?: string;
@@ -191,7 +220,7 @@ export interface OsSnapshotDto {
 }
 
 export async function buildOsSnapshot(): Promise<OsSnapshotDto> {
-  const { adapter, adapterName, controlApiBase } = getJarvisRuntime();
+  const { adapter, adapterName, controlApiBase, projectId } = getJarvisRuntime();
   if (adapterName === "mock") {
     const state = await adapter.getCurrentState({
       include_runs: true,
@@ -201,6 +230,7 @@ export async function buildOsSnapshot(): Promise<OsSnapshotDto> {
     return {
       adapter: "mock",
       control_api: null,
+      project_id: projectId,
       observation_only: true,
       reachable: true,
       state,
@@ -216,7 +246,8 @@ export async function buildOsSnapshot(): Promise<OsSnapshotDto> {
     return {
       adapter: "umer-read",
       control_api: controlApiBase,
-      observation_only: true,
+      project_id: projectId,
+      observation_only: false,
       reachable: true,
       state,
       capabilities: capabilities.slice(0, 40),
@@ -225,7 +256,8 @@ export async function buildOsSnapshot(): Promise<OsSnapshotDto> {
     return {
       adapter: "umer-read",
       control_api: controlApiBase,
-      observation_only: true,
+      project_id: projectId,
+      observation_only: false,
       reachable: false,
       error: e instanceof Error ? e.message : "OS snapshot failed",
     };

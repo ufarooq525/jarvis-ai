@@ -10,6 +10,7 @@ import { isKillSwitchEngaged } from "../kill-switch.js";
 import { decomposeGoal } from "./decomposer.js";
 import { DispatchBridge } from "./dispatch-bridge.js";
 import { inspectState } from "./state-inspector.js";
+import { quarantineAdapterText } from "../world-model/quarantine.js";
 
 export interface ShadowLoopResult {
   goal: Goal;
@@ -128,7 +129,13 @@ export class GoalEngine {
       goal_id: goal.id,
       kind: "observation",
       principal_id: JARVIS_PRINCIPAL,
-      payload_summary: `State OK; OS: ${inspection.os_summary}`,
+      payload_summary: `State OK; OS: ${
+        quarantineAdapterText({
+          source: "adapter.os_summary",
+          text: inspection.os_summary,
+          goal_id: goal.id,
+        }).safe_summary
+      }`,
     });
 
     const decision_id = newId("dec");
@@ -226,62 +233,94 @@ export class GoalEngine {
     const goal = this.store.goals.get(input.goalId);
     if (!goal) throw new Error("goal not found");
 
-    // Fail closed: without Strong-confirm path, SHADOW cannot Live.
-    // Confirm authorizes elevating this goal only.
-    goal.mode = "live";
-    goal.trust_tier = "APPROVED";
-    goal.autonomy_ceiling = 2;
-    goal.status = "active";
-    goal.updated_at = nowIso();
-    this.store.saveGoal(goal);
+  // Fail closed: without Strong-confirm path, SHADOW cannot Live.
+  // Confirm authorizes elevating this goal only — rolled back if Live dispatch fails.
+  const prevMode = goal.mode;
+  const prevTrust = goal.trust_tier;
+  const prevAutonomy = goal.autonomy_ceiling;
+  const prevStatus = goal.status;
 
-    const decision_id = newId("dec");
-    this.evidence.append({
+  goal.mode = "live";
+  goal.trust_tier = "APPROVED";
+  goal.autonomy_ceiling = 2;
+  goal.status = "active";
+  goal.updated_at = nowIso();
+  this.store.saveGoal(goal);
+
+  const decision_id = newId("dec");
+  this.evidence.append({
+    goal_id: goal.id,
+    kind: "decision",
+    principal_id: HUMAN_PRINCIPAL,
+    payload_summary: "Human Strong-confirm LIVE — promote Shadow plan to Live startRun",
+    correlation: { decision_id },
+  });
+
+  const tasks = [...this.store.tasks.values()].filter((t) => t.goal_id === goal.id);
+  let task = tasks.find((t) => t.tool_ids.includes("os.runtime.start_run"));
+  if (!task) {
+    const obj = [...this.store.objectives.values()].find((o) => o.goal_id === goal.id);
+    task = {
+      id: newId("task"),
+      parent_id: obj?.id ?? goal.id,
       goal_id: goal.id,
-      kind: "decision",
-      principal_id: HUMAN_PRINCIPAL,
-      payload_summary: "Human Strong-confirm LIVE — promote Shadow plan to Live startRun",
-      correlation: { decision_id },
-    });
+      title: "Live OS agent run (approved)",
+      intent: `Live advance: ${goal.outcome}`,
+      status: "ready",
+      assignee_kind: "os_agent",
+      tool_ids: ["os.runtime.start_run"],
+      idempotency_key: `${goal.id}:live:start_run`,
+    };
+    this.store.saveTask(task);
+  } else {
+    // Fresh Live idempotency key so Shadow sim run is not replayed.
+    task = {
+      ...task,
+      idempotency_key: `${goal.id}:live:start_run`,
+      status: "ready",
+    };
+    this.store.saveTask(task);
+  }
 
-    const tasks = [...this.store.tasks.values()].filter((t) => t.goal_id === goal.id);
-    let task = tasks.find((t) => t.tool_ids.includes("os.runtime.start_run"));
-    if (!task) {
-      const obj = [...this.store.objectives.values()].find((o) => o.goal_id === goal.id);
-      task = {
-        id: newId("task"),
-        parent_id: obj?.id ?? goal.id,
-        goal_id: goal.id,
-        title: "Live OS agent run (approved)",
-        intent: `Live advance: ${goal.outcome}`,
-        status: "ready",
-        assignee_kind: "os_agent",
-        tool_ids: ["os.runtime.start_run"],
-        idempotency_key: `${goal.id}:live:start_run`,
-      };
-      this.store.saveTask(task);
-    } else {
-      // Fresh Live idempotency key so Shadow sim run is not replayed.
-      task = {
-        ...task,
-        idempotency_key: `${goal.id}:live:start_run`,
-        status: "ready",
-      };
-      this.store.saveTask(task);
-    }
-
-    const { run, verdict, skipped } = await this.bridge.dispatchLiveApproved({
+  let run: AgentRun;
+  let verdict: { id: string; class: string; reason: string };
+  let skipped: string | undefined;
+  try {
+    const dispatched = await this.bridge.dispatchLiveApproved({
       goal,
       task,
       decision_id,
       tool_id: "os.runtime.start_run",
       project_id: input.project_id,
-      approver: input.approver ?? HUMAN_PRINCIPAL,
+      approver: input.approver ?? process.env.JARVIS_OS_APPROVER?.trim() ?? "human.ceo",
     });
+    run = dispatched.run;
+    verdict = dispatched.verdict;
+    skipped = dispatched.skipped;
+  } catch (e) {
+    goal.mode = prevMode;
+    goal.trust_tier = prevTrust;
+    goal.autonomy_ceiling = prevAutonomy;
+    goal.status = prevStatus;
+    goal.updated_at = nowIso();
+    this.store.saveGoal(goal);
+    const msg = e instanceof Error ? e.message : "Live dispatch failed";
+    throw new Error(
+      msg.includes("fetch failed") || /ECONNREFUSED|unreachable|Failed to fetch/i.test(msg)
+        ? `Control API unreachable — start Umer OS (port 4000), then try LIVE again. (${msg})`
+        : msg,
+    );
+  }
 
-    if (skipped && !run.os_run_id) {
-      throw new Error(skipped);
-    }
+  if (skipped && !run.os_run_id) {
+    goal.mode = prevMode;
+    goal.trust_tier = prevTrust;
+    goal.autonomy_ceiling = prevAutonomy;
+    goal.status = prevStatus;
+    goal.updated_at = nowIso();
+    this.store.saveGoal(goal);
+    throw new Error(skipped);
+  }
 
     const head = this.evidence.head(goal.id)!;
     this.journal.append({

@@ -2,47 +2,26 @@
 
 ## Checklist
 
-- [x] Design pack + OS audit + adapter boundary
-- [x] §16 Shadow Loop (mock / CLI)
-- [x] Phased FE+BE plan
-- [x] **Phase A–D** — API + Board + trust + SQLite + umer-read observe
-  - [x] Manual A–D smoke (user 2026-09-12)
-- [x] **Phase E** — Approve → Live startRun — 2026-09-12
-  - [x] `promoteToLive` + `POST /v1/goals/:id/promote-live` (type `LIVE`)
-  - [x] Umer adapter Live → `POST /v1/work-graph/:projectId/plan` `{ approver }`
-  - [x] Hard gates: confirm phrase, kill switch, elevate off SHADOW, idempotent Live key
-  - [x] FE PromoteLiveDialog + live-status poll
-  - [x] Manual: Strong-confirm LIVE path verified (user 2026-09-12)
+- [x] Phases A–G
+- [x] **Phase H** — Computer observe — 2026-09-12
+  - [x] `GET /v1/computer/snapshot` (observe-only)
+  - [x] `POST /v1/computer/act` → 403
+  - [x] `/computer` UI panel
+  - [ ] Manual: open Computer → see host metrics; act stays blocked
+
+## Connection (FE)
+
+Settings → Connection: adapter (Mock | Umer OS), Control API base, **work-graph** `project_id` from `/v1/work-projects` (e.g. `proj-2fced68d-…`). Save persists on API + localStorage. Promote Live uses that project for `POST /v1/work-graph/:id/plan`.
 
 ## Next
 
-- [ ] **Phase F** — World Model + Memory (thin)
-- [ ] Phase G — Mission Control
-- [ ] Phase H — Computer use
-- [ ] Phase I — Voice
+- [ ] Phase I — Voice (last; only after Attention model is solid)
 
 ## Run
 
 ```bash
-pnpm install
 pnpm dev:api
 pnpm dev:web
-pnpm test
 ```
 
-Live against real OS (optional):
-
-```bash
-set JARVIS_ADAPTER=umer-read
-set JARVIS_OS_PROJECT_ID=<work-graph-project-id>
-set CONTROL_API_BASE=http://127.0.0.1:4000
-pnpm dev:api
-```
-
-## Rule
-
-```
-JARVIS → Goal Engine → Adapter Contract → Mock | Umer OS Adapter
-```
-
-Shadow never POSTs plan. Live only after Strong-confirm `LIVE` + kill switch clear.
+Open http://127.0.0.1:5173/computer

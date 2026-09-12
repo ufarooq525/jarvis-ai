@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useJarvis } from "./store/JarvisProvider";
 import { readsCount, writesCount, type Goal } from "./store/types";
+import { NowPanel } from "./components/NowPanel";
 
 const COL = {
   stated: "Stated",
@@ -205,7 +206,12 @@ export function BoardPage() {
           {error ? (
             <p style={{ color: "var(--danger-ink)", marginTop: 8, fontSize: 13.5 }}>
               {error}{" "}
-              <button type="button" className="btn sec" style={{ padding: "4px 10px" }} onClick={() => void refresh()}>
+              <button
+                type="button"
+                className="btn sec"
+                style={{ padding: "4px 10px" }}
+                onClick={() => void refresh()}
+              >
                 Retry
               </button>
             </p>
@@ -220,6 +226,10 @@ export function BoardPage() {
         </button>
       </div>
 
+      <div className="wrap">
+        <NowPanel />
+      </div>
+
       {loading ? (
         <div className="empty" style={{ maxWidth: 420, margin: "40px auto" }}>
           <span className="thinking">
@@ -228,35 +238,39 @@ export function BoardPage() {
           </span>
         </div>
       ) : (
-      <div className="board">
-        {(["stated", "shadow", "live", "done"] as const).map((st) => {
-          const items = st === "done" ? byStage("done-col") : byStage(st);
-          const hc = st === "shadow" ? " h-shadow" : st === "live" ? " h-live" : "";
-          const track =
-            st === "shadow" ? "t-shadow" : st === "live" ? `t-live${liveFlash ? " flash" : ""}` : "";
-          return (
-            <section className="col" key={st}>
-              <div className={`col-hd${hc}`}>
-                <b>{COL[st]}</b>
-                <i>{items.length}</i>
-                <u>{GLOSS[st]}</u>
-              </div>
-              <div className={`track ${track}`}>
-                {items.length === 0 ? (
-                  <div className="empty">{EMPTY[st]}</div>
-                ) : (
-                  items.map((g, i) => (
-                    <GoalCard key={g.id} goal={g} index={i} onOpen={() => openDrawer(g.id)} />
-                  ))
-                )}
-                {st === "done" && items.length > 0 ? (
-                  <div className="empty">Earlier finished plans stay here</div>
-                ) : null}
-              </div>
-            </section>
-          );
-        })}
-      </div>
+        <div className="board">
+          {(["stated", "shadow", "live", "done"] as const).map((st) => {
+            const items = st === "done" ? byStage("done-col") : byStage(st);
+            const hc = st === "shadow" ? " h-shadow" : st === "live" ? " h-live" : "";
+            const track =
+              st === "shadow"
+                ? "t-shadow"
+                : st === "live"
+                  ? `t-live${liveFlash ? " flash" : ""}`
+                  : "";
+            return (
+              <section className="col" key={st}>
+                <div className={`col-hd${hc}`}>
+                  <b>{COL[st]}</b>
+                  <i>{items.length}</i>
+                  <u>{GLOSS[st]}</u>
+                </div>
+                <div className={`track ${track}`}>
+                  {items.length === 0 ? (
+                    <div className="empty">{EMPTY[st]}</div>
+                  ) : (
+                    items.map((g, i) => (
+                      <GoalCard key={g.id} goal={g} index={i} onOpen={() => openDrawer(g.id)} />
+                    ))
+                  )}
+                  {st === "done" && items.length > 0 ? (
+                    <div className="empty">Earlier finished plans stay here</div>
+                  ) : null}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       )}
     </div>
   );

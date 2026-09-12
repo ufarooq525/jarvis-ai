@@ -61,9 +61,31 @@ function migrate(db: JarvisDb): void {
       new Date().toISOString(),
     );
   }
+  if (current < 2) {
+    const sql = readFileSync(join(HERE, "migrations", "002_settings.sql"), "utf8");
+    db.exec(sql);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+      2,
+      new Date().toISOString(),
+    );
+  }
 }
 
-/** Wipe all domain tables (tests / reset). Keeps schema. */
+export function getSetting(db: JarvisDb, key: string): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(db: JarvisDb, key: string, value: string): void {
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+  ).run(key, value);
+}
+
+/** Wipe all domain tables (tests / reset). Keeps schema + settings. */
 export function clearJarvisDb(db: JarvisDb): void {
   db.exec(`
     DELETE FROM decision_records;

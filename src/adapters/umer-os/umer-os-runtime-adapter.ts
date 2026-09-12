@@ -9,6 +9,7 @@ import type {
 } from "../../contracts/os-runtime-adapter.js";
 import { newId, nowIso } from "../../util/ids.js";
 import { resolveControlApiBase } from "../../config.js";
+import { getOsProjectId } from "../../connection.js";
 import { ControlApiClient, type FetchLike } from "./http-client.js";
 
 export interface UmerOsAdapterOptions {
@@ -194,19 +195,19 @@ export class UmerOsRuntimeAdapter implements OsRuntimeAdapter {
       typeof (spec.input as { project_id?: string }).project_id === "string"
         ? (spec.input as { project_id: string }).project_id
         : undefined) ||
-      process.env.JARVIS_OS_PROJECT_ID?.trim();
+      getOsProjectId() ||
+      undefined;
 
     if (!projectId) {
       throw new Error(
-        "Live startRun requires project_id (body or JARVIS_OS_PROJECT_ID) — fail closed",
+        "Live startRun requires project_id (body, Settings, or JARVIS_OS_PROJECT_ID) — fail closed",
       );
     }
 
     const approver =
       spec.approver ||
-      spec.correlation.principal_id ||
       process.env.JARVIS_OS_APPROVER?.trim() ||
-      "Human(Umer)";
+      "human.ceo";
 
     const path = `/v1/work-graph/${encodeURIComponent(projectId)}/plan`;
     const accepted = await this.client.postJson<{

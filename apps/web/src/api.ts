@@ -80,6 +80,7 @@ export function getHealth() {
     phase: string;
     kill_switch?: { engaged: boolean; reason: string | null };
     control_api?: string | null;
+    project_id?: string | null;
     observation_only?: boolean;
   }>("/health");
 }
@@ -234,6 +235,7 @@ export function resolveEscalation(id: string, decision: "approve" | "reject") {
 export interface OsSnapshotDto {
   adapter: string;
   control_api: string | null;
+  project_id?: string | null;
   observation_only: boolean;
   reachable: boolean;
   error?: string;
@@ -247,6 +249,17 @@ export interface OsSnapshotDto {
   capabilities?: { tool_id: string; display_name: string; specialist_id?: string }[];
 }
 
+export interface OsProjectOption {
+  project_id: string;
+  name: string;
+  status: string;
+  source: "work-projects" | "catalog";
+  use_for_live: boolean;
+  registry_project_id?: string;
+  on_disk?: boolean;
+  note?: string;
+}
+
 export function getOsSnapshot() {
   return request<OsSnapshotDto>("/v1/os/snapshot").catch(async (err) => {
     // 503 still returns a useful body — re-fetch raw for Settings panel
@@ -257,15 +270,60 @@ export function getOsSnapshot() {
   });
 }
 
-export function setAdapter(adapter: "mock" | "umer-read") {
+export function getConnection() {
   return request<{
     adapter: string;
     control_api: string | null;
+    control_api_base: string;
+    project_id: string | null;
+  }>("/v1/connection");
+}
+
+export function listOsProjects() {
+  return request<{
+    control_api: string;
+    selected_project_id: string | null;
+    work_projects: OsProjectOption[];
+    catalog_projects: OsProjectOption[];
+    hint: string;
+    error?: string;
+  }>("/v1/os/projects");
+}
+
+export function setAdapter(
+  adapter: "mock" | "umer-read",
+  opts?: { control_api_base?: string; project_id?: string },
+) {
+  return request<{
+    adapter: string;
+    control_api: string | null;
+    project_id: string | null;
     observation_only: boolean;
     note: string;
   }>("/v1/adapter", {
     method: "POST",
-    body: JSON.stringify({ adapter }),
+    body: JSON.stringify({
+      adapter,
+      control_api_base: opts?.control_api_base,
+      project_id: opts?.project_id,
+    }),
+  });
+}
+
+export function setConnection(body: {
+  adapter?: "mock" | "umer-read";
+  control_api_base?: string;
+  project_id?: string;
+}) {
+  return request<{
+    adapter: string;
+    control_api: string | null;
+    project_id: string | null;
+    observation_only: boolean;
+    note: string;
+  }>("/v1/adapter", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 
@@ -296,4 +354,98 @@ export function getLiveStatus(goalId: string) {
     os_run: { os_run_id: string; status: string; summary: string } | null;
     error?: string;
   }>(`/v1/goals/${goalId}/live-status`);
+}
+
+export interface WmEntityDto {
+  entity_id: string;
+  type: string;
+  version: number;
+  title: string;
+  summary: string;
+  confidence: number;
+  provenance: string;
+  trust: string;
+  last_verified_at: string;
+  refs?: Record<string, string>;
+}
+
+export interface WmNowDto {
+  at: string;
+  active_goal: WmEntityDto | null;
+  open_approvals: WmEntityDto[];
+  os_run_count: number;
+  pending_gates: number;
+  adapter: string;
+  stm: {
+    active_goal_id: string | null;
+    open_approval_ids: string[];
+    os_run_count: number;
+  };
+  os_reachable?: boolean;
+}
+
+export function getWmNow() {
+  return request<WmNowDto>("/v1/wm/now");
+}
+
+export function listWmEntities(q?: string, types?: string) {
+  const params = new URLSearchParams();
+  if (q) params.set("q", q);
+  if (types) params.set("types", types);
+  const qs = params.toString();
+  return request<{ adapter: string; entities: WmEntityDto[]; quarantine: unknown[] }>(
+    `/v1/wm/entities${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export interface PortfolioDto {
+  adapter: string;
+  at: string;
+  domains: Array<{
+    domain: string;
+    trust_tier: string;
+    goal_count: number;
+    active: number;
+    shadow: number;
+    live: number;
+    kr: { total: number; met: number; miss: number };
+    promotion_candidate: boolean;
+  }>;
+  escalations: {
+    pending: number;
+    breached: number;
+    avg_age_ms: number | null;
+    soonest_expires_at: string | null;
+  };
+  journal: {
+    decisions: number;
+    by_outcome: Record<string, number>;
+    avg_confidence: number | null;
+  };
+  evidence: { goals_with_chain: number; nodes: number };
+  os: { reachable: boolean; run_count: number; pending_gates: number };
+}
+
+export function getPortfolio(domain?: string) {
+  const q = domain ? `?domain=${encodeURIComponent(domain)}` : "";
+  return request<PortfolioDto>(`/v1/portfolio${q}`);
+}
+
+export interface ComputerSnapshotDto {
+  at: string;
+  plane: "observe";
+  act_enabled: false;
+  host: { hostname: string; platform: string; arch: string; release: string };
+  resources: {
+    cpu_count: number;
+    freemem_mb: number;
+    totalmem_mb: number;
+    uptime_hours: number;
+  };
+  process: { node: string; pid: number; cwd_preview: string };
+  note: string;
+}
+
+export function getComputerSnapshot() {
+  return request<ComputerSnapshotDto>("/v1/computer/snapshot");
 }

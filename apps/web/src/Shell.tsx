@@ -60,9 +60,12 @@ export function Shell() {
           <NavLink to="/" end>
             Board
           </NavLink>
+          <NavLink to="/mission">Mission</NavLink>
           <NavLink to="/goals">
             Goals <em>{goals.length}</em>
           </NavLink>
+          <NavLink to="/world">World</NavLink>
+          <NavLink to="/computer">Computer</NavLink>
           <NavLink to="/activity">Activity</NavLink>
           <NavLink to="/approvals">Approvals</NavLink>
           <NavLink to="/settings">Settings</NavLink>

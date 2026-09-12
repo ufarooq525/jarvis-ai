@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  getConnection,
   getGoal,
   getLiveStatus,
   listGoals,
@@ -68,7 +69,10 @@ function uid(prefix: string) {
 }
 
 export function JarvisProvider({ children }: { children: ReactNode }) {
-  const [mode, setModeState] = useState<Mode>("shadow");
+  const [mode, setModeState] = useState<Mode>(() => {
+    const saved = localStorage.getItem("jarvis.ui_mode");
+    return saved === "live" ? "live" : "shadow";
+  });
   const [composerMode, setComposerMode] = useState<Mode>("shadow");
   const [goals, setGoals] = useState<Goal[]>([]);
   const [log, setLog] = useState<LogEntry[]>([]);
@@ -92,6 +96,7 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
   const setMode = useCallback((m: Mode) => {
     setModeState(m);
     setComposerMode(m);
+    localStorage.setItem("jarvis.ui_mode", m);
     document.documentElement.dataset.mode = m;
   }, []);
 
@@ -226,7 +231,25 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
     setPromoting(true);
     setError(null);
     try {
-      const result = await promoteLive(promoteId, { confirm: "LIVE" });
+      const fromLs = localStorage.getItem("jarvis.os_project_id")?.trim();
+      let projectId = fromLs || undefined;
+      let adapter = "mock";
+      try {
+        const conn = await getConnection();
+        if (conn.project_id) projectId = conn.project_id;
+        adapter = conn.adapter;
+      } catch {
+        /* use localStorage */
+      }
+      if (adapter === "umer-read" && !projectId) {
+        throw new Error(
+          "No project selected — open Settings, click Umer OS (real), pick a project, then try again.",
+        );
+      }
+      const result = await promoteLive(promoteId, {
+        confirm: "LIVE",
+        project_id: projectId,
+      });
       const detail = await getGoal(result.goal.id);
       const mapped = mapDetailToBoardGoal(detail, {
         stage: "live",
@@ -267,7 +290,6 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
       if (undoRef.current) window.clearTimeout(undoRef.current);
       undoRef.current = window.setTimeout(() => setToast(null), 7000);
 
-      // Poll live status a few times (best-effort)
       const gid = result.goal.id;
       let n = 0;
       const poll = window.setInterval(() => {
@@ -286,7 +308,19 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
         if (n >= 8) window.clearInterval(poll);
       }, 2500);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Live promote failed");
+      const msg = e instanceof Error ? e.message : "Live promote failed";
+      setError(msg);
+      appendLog({
+        day: todayLabel(),
+        time: nowStr(),
+        kind: "fl",
+        title: "Live promote failed",
+        detail: msg,
+        fx: "blocked",
+        fxk: "fail",
+        real: false,
+        goalId: promoteId,
+      });
     } finally {
       setPromoting(false);
     }

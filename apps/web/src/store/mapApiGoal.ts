@@ -37,11 +37,14 @@ export function mapTasksToSteps(tasks: TaskRow[]): Step[] {
   }));
 }
 
-/** Phase A: Goal Engine Shadow plans land in the Shadow column until the user approves Live (local until Phase E). */
+/** Map API goal mode/status → Board column. Live mode must survive refresh. */
 export function defaultStageFromApi(status: string, mode: string): Stage {
   if (status === "cancelled") return "discarded";
-  if (mode === "live" && status === "active") return "live";
-  if (status === "done" && mode === "live") return "done";
+  if (mode === "live") {
+    if (status === "failed") return "failed";
+    if (status === "done" || status === "succeeded") return "done";
+    return "live";
+  }
   // Shadow completed / active plans wait for human review
   return "shadow";
 }
