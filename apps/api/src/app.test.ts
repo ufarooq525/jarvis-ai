@@ -17,7 +17,7 @@ describe("Phase A JARVIS API", () => {
     const body = await res.json();
     expect(body.adapter).toBe("mock");
     expect(body.mode_default).toBe("shadow");
-    expect(body.phase).toBe("5");
+    expect(body.phase).toBe("6");
   });
 
   it("POST shadow-loop returns shadow mode and evidence", async () => {
@@ -651,5 +651,48 @@ describe("Phase 5 computer shadow plane", () => {
     expect(ids).toContain("computer.observe.snapshot");
     expect(ids).toContain("computer.locate");
     expect(ids).toContain("computer.open_app");
+  });
+});
+
+describe("Phase 6 browser shadow research", () => {
+  beforeEach(() => {
+    resetJarvisRuntime({ adapter: "mock" });
+  });
+
+  it("snapshots, researches allowlisted URL via inject path, blocks act", async () => {
+    const app = createApp();
+    const snap = await app.request("/v1/browser/snapshot");
+    expect(snap.status).toBe(200);
+    const body = await snap.json();
+    expect(body.plane).toBe("shadow");
+    expect(body.capabilities.click).toBe(false);
+
+    const allow = await app.request("/v1/browser/allowlist");
+    expect(allow.status).toBe(200);
+    const aJson = await allow.json();
+    expect(aJson.allowlist.some((e: { host: string }) => e.host === "example.com")).toBe(true);
+
+    const sim = await app.request("/v1/browser/shadow-research", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com/", simulate_only: true }),
+    });
+    expect(sim.status).toBe(200);
+    const simBody = await sim.json();
+    expect(simBody.simulated).toBe(true);
+    expect(simBody.action.fetch.visited).toBe(false);
+
+    const act = await app.request("/v1/browser/act", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "click" }),
+    });
+    expect(act.status).toBe(403);
+
+    const tools = await app.request("/v1/tools");
+    const tbody = await tools.json();
+    const ids = tbody.tools.map((t: { tool_id: string }) => t.tool_id);
+    expect(ids).toContain("browser.research");
+    expect(ids).toContain("browser.act.click");
   });
 });

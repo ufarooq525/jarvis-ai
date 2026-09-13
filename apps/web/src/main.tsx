@@ -11,6 +11,7 @@ import { SettingsPage } from "./SettingsPage";
 import { EntitiesPage } from "./EntitiesPage";
 import { MissionPage } from "./MissionPage";
 import { ComputerPage } from "./ComputerPage";
+import { BrowserPage } from "./BrowserPage";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -24,6 +25,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="goals" element={<GoalsPage />} />
             <Route path="world" element={<EntitiesPage />} />
             <Route path="computer" element={<ComputerPage />} />
+            <Route path="browser" element={<BrowserPage />} />
             <Route path="activity" element={<ActivityPage />} />
             <Route path="approvals" element={<ApprovalsPage />} />
             <Route path="settings" element={<SettingsPage />} />

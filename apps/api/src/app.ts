@@ -30,6 +30,8 @@ import { listQuarantine } from "../../../src/world-model/quarantine.js";
 import { buildPortfolio } from "../../../src/portfolio/project.js";
 import { computerActBlocked, getComputerSnapshot } from "../../../src/computer/observe.js";
 import { ComputerRuntime } from "../../../src/computer/runtime.js";
+import { browserActBlocked, getBrowserSnapshot } from "../../../src/browser/observe.js";
+import { BrowserRuntime } from "../../../src/browser/runtime.js";
 import { newId } from "../../../src/util/ids.js";
 
 export function createApp() {
@@ -49,7 +51,7 @@ export function createApp() {
     return c.json({
       ok: true,
       service: "jarvis-api",
-      phase: "5",
+      phase: "6",
       adapter: adapterName,
       mode_default: "shadow",
       kill_switch: killSwitchStatus(),
@@ -58,6 +60,7 @@ export function createApp() {
       project_id: projectId,
       observation_only: adapterName === "mock",
       computer_plane: "shadow",
+      browser_plane: "shadow",
     });
   });
 
@@ -65,10 +68,11 @@ export function createApp() {
     const { adapterName, dbPath, controlApiBase } = getJarvisRuntime();
     return c.json({
       product: "JARVIS",
-      phase: "5",
+      phase: "6",
       adapter: adapterName,
-      note: "Phase 5: computer observe + locate + SHADOW/LIVE open (click/type blocked)",
+      note: "Phase 6: SHADOW browser research (allowlisted GET) + computer Live open; click/type/publish blocked",
       computer_plane: "shadow",
+      browser_plane: "shadow",
       control_api: controlApiBase,
       persistence: dbPath === ":memory:" ? "memory" : "sqlite",
       observation_only: adapterName === "mock",
@@ -434,6 +438,54 @@ export function createApp() {
     try {
       new ComputerRuntime().assertActAllowed(action as "click");
       computerActBlocked(action);
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "act blocked", act_enabled: false }, 403);
+    }
+  });
+
+  // ——— Phase 6: browser SHADOW research ———
+
+  app.get("/v1/browser/snapshot", (c) => {
+    return c.json(getBrowserSnapshot());
+  });
+
+  app.get("/v1/browser/allowlist", (c) => {
+    const runtime = new BrowserRuntime();
+    return c.json({
+      allowlist: runtime.listAllowlist(),
+      note: "SHADOW read-only GET — hosts only; click/type/publish blocked",
+    });
+  });
+
+  app.post("/v1/browser/shadow-research", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      url?: string;
+      goal_id?: string;
+      simulate_only?: boolean;
+    };
+    if (!body.url?.trim()) {
+      return c.json({ error: "url is required (allowlisted host, e.g. https://example.com)" }, 400);
+    }
+    const { engine } = getJarvisRuntime();
+    const runtime = new BrowserRuntime(engine.evidence);
+    try {
+      const result = await runtime.runShadowResearch({
+        url: body.url.trim(),
+        goal_id: body.goal_id,
+        simulate_only: body.simulate_only === true,
+      });
+      return c.json(result);
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "shadow-research failed" }, 400);
+    }
+  });
+
+  app.post("/v1/browser/act", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { action?: string };
+    const action = body.action ?? "unknown";
+    try {
+      new BrowserRuntime().assertActAllowed(action as "click");
+      browserActBlocked(action);
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : "act blocked", act_enabled: false }, 403);
     }

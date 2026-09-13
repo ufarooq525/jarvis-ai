@@ -66,6 +66,7 @@ export function Shell() {
           </NavLink>
           <NavLink to="/world">World</NavLink>
           <NavLink to="/computer">Computer</NavLink>
+          <NavLink to="/browser">Browser</NavLink>
           <NavLink to="/activity">Activity</NavLink>
           <NavLink to="/approvals">Approvals</NavLink>
           <NavLink to="/settings">Settings</NavLink>

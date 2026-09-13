@@ -150,7 +150,7 @@ export type ExecutionContext = "jarvis" | "os" | "computer" | "browser" | "knowl
 export interface ToolManifest {
   tool_id: string;
   version: string;
-  adapter: "umer_os" | "computer" | "knowledge" | "jarvis_internal";
+  adapter: "umer_os" | "computer" | "browser" | "knowledge" | "jarvis_internal";
   display_name: string;
   /** Declared input fields / shapes (documentation + policy). */
   inputs: string[];

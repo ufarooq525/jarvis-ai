@@ -578,3 +578,63 @@ export async function postComputerLiveOpen(body: {
   }
   return data as ComputerLiveOpenDto;
 }
+
+export interface BrowserSnapshotDto {
+  at: string;
+  plane: "shadow";
+  act_enabled: false;
+  fetch_enabled: true;
+  capabilities: {
+    shadow_research: true;
+    click: false;
+    type: false;
+    publish: false;
+  };
+  note: string;
+}
+
+export interface ResearchFactDto {
+  id: string;
+  claim: string;
+  kind: "fact" | "inference" | "uncertainty";
+  source_url: string;
+  fetched_at: string;
+  confidence: number;
+}
+
+export interface BrowserShadowResearchDto {
+  url: string;
+  message: string;
+  simulated: boolean;
+  notice: string;
+  duplicates_skipped: number;
+  facts: ResearchFactDto[];
+  action: {
+    ok: boolean;
+    summary: string;
+    fetch?: { visited: boolean; title?: string; error?: string; fetched_at: string };
+    verification?: { passed: boolean; summary: string };
+  };
+}
+
+export function getBrowserSnapshot() {
+  return request<BrowserSnapshotDto>("/v1/browser/snapshot");
+}
+
+export function getBrowserAllowlist() {
+  return request<{ allowlist: Array<{ host: string; note: string }>; note: string }>(
+    "/v1/browser/allowlist",
+  );
+}
+
+export function postBrowserShadowResearch(body: {
+  url: string;
+  goal_id?: string;
+  simulate_only?: boolean;
+}) {
+  return request<BrowserShadowResearchDto>("/v1/browser/shadow-research", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}

@@ -249,6 +249,31 @@ async function main() {
   if (!clear.ok) fail(`Could not clear kill switch: ${detail(clear.body)}`);
   info("Kill switch cleared");
 
+  // ——— Browser SHADOW research (allowlisted GET — not demo) ———
+  const browserSnap = await getJson(`${JARVIS}/v1/browser/snapshot`);
+  if (!browserSnap.ok) fail(`browser/snapshot failed: ${detail(browserSnap.body)}`);
+  info("Browser plane reachable");
+
+  const research = await postJson(`${JARVIS}/v1/browser/shadow-research`, {
+    url: "https://example.com/",
+  });
+  if (!research.ok) fail(`browser shadow-research failed: ${detail(research.body)}`);
+  if (research.body.action?.fetch?.visited !== true) {
+    fail(`Expected visited example.com: ${detail(research.body)}`);
+  }
+  if (!Array.isArray(research.body.facts) || research.body.facts.length < 1) {
+    fail(`Expected extracted facts: ${detail(research.body)}`);
+  }
+  info(
+    `Browser research visited example.com — ${research.body.facts.length} claims (${research.body.notice})`,
+  );
+
+  const browserAct = await postJson(`${JARVIS}/v1/browser/act`, { action: "click" });
+  if (browserAct.status !== 403) {
+    fail(`Expected browser act 403, got ${browserAct.status}`);
+  }
+  info("Browser act click still blocked");
+
   // ——— Explicitly skip demo endpoints ———
   info("Skipped /v1/escalations/demo (not part of Live suite)");
 
@@ -256,7 +281,7 @@ async function main() {
   if (DRY) {
     console.log("PASS (DRY): Live gates ok. Re-run without VERIFY_LIVE_DRY=1 for real actions.");
   } else {
-    console.log("PASS: Live verification completed (OS + computer real paths).");
+    console.log("PASS: Live verification completed (OS + computer + browser research).");
   }
   console.log("Docs: docs/LIVE_VERIFICATION.md");
 }
