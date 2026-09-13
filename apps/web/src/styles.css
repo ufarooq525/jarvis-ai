@@ -1817,6 +1817,167 @@ a {
   color: var(--ink-3);
   text-transform: uppercase;
 }
+
+/* Command Center */
+.cc-page {
+  padding-bottom: 120px;
+}
+.cc-wrap {
+  max-width: 820px;
+}
+.cc-hero {
+  margin-bottom: 22px;
+}
+.cc-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.cc-state b {
+  font-weight: 700;
+}
+.cc-state span {
+  color: var(--ink-2);
+}
+.cc-state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+.op-working .cc-state-dot {
+  background: var(--live);
+}
+.op-wait .cc-state-dot {
+  background: var(--shadow);
+}
+.op-block .cc-state-dot,
+.op-fail .cc-state-dot {
+  background: var(--danger);
+}
+.op-think .cc-state-dot {
+  background: var(--stated);
+  animation: blip 1.6s ease-in-out infinite;
+}
+.op-idle .cc-state-dot {
+  background: var(--ink-3);
+}
+.cc-mode-hint {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+.cc-hero h1 {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.cc-lead {
+  margin: 0;
+  font-size: 16px;
+  color: var(--ink);
+  max-width: 54ch;
+  line-height: 1.5;
+}
+.cc-panel {
+  margin-bottom: 16px;
+}
+.cc-focus h3 {
+  font-size: 18px;
+  margin: 0;
+  padding: 0 16px;
+}
+.cc-focus > p {
+  margin: 6px 0 0;
+  padding: 0 16px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+.cc-note {
+  margin: 6px 0 0 !important;
+  font-size: 12.5px !important;
+  color: var(--ink-3) !important;
+}
+.cc-obj {
+  margin: 10px 16px 0 !important;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.cc-kr {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cc-kr li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13.5px;
+}
+.cc-kr em {
+  grid-column: 1 / -1;
+  font-style: normal;
+  font-size: 12px;
+  color: var(--shadow-ink);
+}
+.cc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 14px 16px 16px;
+}
+.cc-next {
+  border-top: 1px solid var(--line);
+  padding: 12px 16px 14px;
+  background: var(--sunken);
+}
+.cc-next b {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cc-next p {
+  margin: 4px 0 0;
+  font-size: 14px;
+}
+.cc-pipe-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 16px;
+  flex-wrap: wrap;
+}
+.cc-pipe-toggle span {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.cc-board {
+  margin-top: 4px;
+}
+.cc-eyebrow {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.cc-command .panel-hd p {
+  max-width: 60ch;
+}
 .gd-steps {
   list-style: none;
   margin: 0;

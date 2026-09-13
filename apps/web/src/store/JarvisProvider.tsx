@@ -213,7 +213,9 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
   const approve = useCallback(
     (id: string) => {
       const g = goals.find((x) => x.id === id);
-      if (!g || g.stage !== "shadow") return;
+      if (!g) return;
+      // Shadow plans (waiting or finished simulation) may request Live; Live/failed/discarded may not.
+      if (g.stage === "live" || g.stage === "failed" || g.stage === "discarded") return;
       setPromoteId(id);
     },
     [goals],

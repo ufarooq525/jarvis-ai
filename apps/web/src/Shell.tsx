@@ -38,20 +38,26 @@ export function Shell() {
         id: "command",
         label: "Command",
         items: [
-          { to: "/", label: "Board", end: true },
-          { to: "/mission", label: "Mission" },
+          { to: "/", label: "Now", end: true },
           { to: "/goals", label: "Goals", badge: goals.length || undefined },
-          { to: "/approvals", label: "Approvals" },
+          { to: "/approvals", label: "Attention" },
         ],
       },
       {
         id: "work",
         label: "Work",
         items: [
+          { to: "/mission", label: "Portfolio" },
+          { to: "/activity", label: "Activity" },
+        ],
+      },
+      {
+        id: "knowledge",
+        label: "Knowledge",
+        items: [
           { to: "/world", label: "World" },
           { to: "/skills", label: "Skills" },
           { to: "/ops", label: "Ops" },
-          { to: "/activity", label: "Activity" },
         ],
       },
       {
