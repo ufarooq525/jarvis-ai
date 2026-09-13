@@ -16,6 +16,7 @@
     "verify": "pnpm test && pnpm typecheck",
     "verify:live": "node scripts/verify-live.mjs",
     "verify:live:dry": "node scripts/verify-live.mjs --dry",
+    "verify:all": "pnpm verify && pnpm verify:live:dry",
     "cli": "tsx src/cli.ts",
     "shadow": "tsx src/cli.ts",
     "dev:api": "pnpm --filter @jarvis/api dev",

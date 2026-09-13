@@ -3,14 +3,24 @@
 Live verification exercises **real** developed paths (Umer OS promote, computer Live open).  
 Unit/Shadow tests stay on `pnpm verify`. This suite does **not** use `/v1/escalations/demo` or stop at Shadow.
 
+**Source of truth while evolving:** local verification (`pnpm verify`, then `pnpm verify:live` when OS is up). CI is optional. Demo escalations are practice only — never Live truth.
+
 ## Automated unit / Shadow (no OS write)
 
 ```bash
 pnpm verify
+pnpm verify:all          # verify + verify:live:dry (gates only)
 pnpm shadow "Find 10 Laravel SaaS opportunities in Saudi Arabia."
 ```
 
 Expect: `SIMULATED / No external action was performed`.
+
+System reliability snapshot (no side effects):
+
+```bash
+curl -s http://127.0.0.1:3020/v1/system/status
+curl -s http://127.0.0.1:3020/v1/voice/status
+```
 
 ## Full Live suite (default)
 
@@ -65,7 +75,10 @@ Fails closed if JARVIS/Control is down, `project_id` missing, adapter is mock, o
 2. Board: create goal → Request Live → type **LIVE** → expect `os_run_id`  
 3. Computer → **Live open…** → type **OPEN** → app launches  
 4. Kill switch ON → Live blocked  
-5. Do not rely on Approvals “demo” for Live confidence
+5. Do not rely on Approvals “practice demo” for Live confidence  
+6. Attention rail (right edge) shows pending decisions + Now  
+7. Goals → open a goal detail (`/goals/:id`) for progressive evidence disclosure  
+8. Settings → Voice (opt-in) → Mic on Board fills text only (no execute)
 
 ### Phase E / Live exit criteria
 
@@ -77,12 +90,14 @@ Fails closed if JARVIS/Control is down, `project_id` missing, adapter is mock, o
 - [ ] Evidence / journal record Live decisions
 - [ ] Click/type still blocked
 
+### Phase 12 reliability checklist
+
+- [ ] `pnpm verify` passes (unit + typecheck)
+- [ ] `/v1/system/status` reports `demo_escalations_are_truth: false`
+- [ ] Cancel / retry / idempotency covered in Shadow Loop tests
+- [ ] Live path uses `verify:live`, not Approvals demo
+- [ ] Voice never bypasses LIVE/OPEN confirm
+
 ## Architecture reminder
 
-```text
-UI / curl → JARVIS API → Goal Engine → OsRuntimeAdapter → Umer Control API
-                         ComputerRuntime → allowlisted spawn (OPEN confirm)
-```
-
-Goal Engine never invents OS routes. Live writes only through the adapter after Strong-confirm.  
-Computer Live open is a separate capability layer (not a second Goal Engine).
+JARVIS is the control plane; Umer AI OS is execution. Keep `OsRuntimeAdapter`. No second Goal Engine.

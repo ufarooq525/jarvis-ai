@@ -93,7 +93,32 @@ export function getHealth() {
     control_api?: string | null;
     project_id?: string | null;
     observation_only?: boolean;
+    voice_plane?: string;
+    ui_plane?: string;
   }>("/health");
+}
+
+export function getSystemStatus() {
+  return request<{
+    ok: boolean;
+    phase: string;
+    adapter: string;
+    escalations_pending: number;
+    verification: { demo_escalations_are_truth: boolean; unit: string; live: string; all: string };
+    planes: Record<string, string>;
+    note: string;
+  }>("/v1/system/status");
+}
+
+export function getVoiceStatus() {
+  return request<{
+    plane: string;
+    always_on: boolean;
+    wake_word: boolean;
+    executes: boolean;
+    bypasses_live_confirm: boolean;
+    note: string;
+  }>("/v1/voice/status");
 }
 
 export function listGoals() {

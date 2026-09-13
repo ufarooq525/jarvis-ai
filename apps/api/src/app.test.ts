@@ -17,7 +17,25 @@ describe("Phase A JARVIS API", () => {
     const body = await res.json();
     expect(body.adapter).toBe("mock");
     expect(body.mode_default).toBe("shadow");
-    expect(body.phase).toBe("10");
+    expect(body.phase).toBe("12");
+  });
+
+  it("system status reports verification SoT and voice plane", async () => {
+    const app = createApp();
+    const res = await app.request("/v1/system/status");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.phase).toBe("12");
+    expect(body.verification.demo_escalations_are_truth).toBe(false);
+    expect(body.planes.voice).toBe("opt-in");
+    expect(body.planes.ui).toBe("command-center");
+
+    const voice = await app.request("/v1/voice/status");
+    expect(voice.status).toBe(200);
+    const v = await voice.json();
+    expect(v.always_on).toBe(false);
+    expect(v.bypasses_live_confirm).toBe(false);
   });
 
   it("POST shadow-loop returns shadow mode and evidence", async () => {

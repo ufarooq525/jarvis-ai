@@ -11,6 +11,12 @@ import {
   type ToolManifestDto,
 } from "./api";
 import { useJarvis } from "./store/JarvisProvider";
+import {
+  isVoiceEnabled,
+  setVoiceEnabled,
+  voiceSupport,
+  VOICE_LS_KEY,
+} from "./lib/voice/stt";
 
 const LS_CONTROL = "jarvis.control_api_base";
 const LS_PROJECT = "jarvis.os_project_id";
@@ -35,6 +41,8 @@ export function SettingsPage() {
   const [workProjects, setWorkProjects] = useState<OsProjectOption[]>([]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showServerUrl, setShowServerUrl] = useState(false);
+  const [voiceEnabled, setVoiceEnabledState] = useState(() => isVoiceEnabled());
+  const voiceOk = voiceSupport();
 
   const selectedProject = useMemo(
     () => workProjects.find((p) => p.project_id === projectId) ?? null,
@@ -424,6 +432,38 @@ export function SettingsPage() {
             >
               <b>Live</b>
               <p>Still shows a plan and asks first. After LIVE confirm, it can run for real.</p>
+            </button>
+          </div>
+        </div>
+
+        <div className="panel">
+          <div className="panel-hd">
+            <h2>Voice (opt-in)</h2>
+            <p>
+              Push-to-talk only on the Board composer. Fills the outcome text — never executes and
+              never skips typing LIVE / OPEN.
+            </p>
+          </div>
+          <div className="srow">
+            <div>
+              <b>{voiceEnabled ? "Enabled" : "Off"}</b>
+              <p>
+                {voiceOk.supported
+                  ? `Browser speech available. Preference stored as ${VOICE_LS_KEY}.`
+                  : voiceOk.reason ?? "Speech not supported in this browser."}
+              </p>
+            </div>
+            <button
+              type="button"
+              className={`btn${voiceEnabled ? " sec" : ""}`}
+              disabled={!voiceOk.supported}
+              onClick={() => {
+                const next = !voiceEnabled;
+                setVoiceEnabled(next);
+                setVoiceEnabledState(next);
+              }}
+            >
+              {voiceEnabled ? "Turn voice off" : "Enable push-to-talk"}
             </button>
           </div>
         </div>

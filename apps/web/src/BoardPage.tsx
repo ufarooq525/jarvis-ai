@@ -202,6 +202,9 @@ export function BoardPage() {
           <h1>
             {hourGreeting()}, Umer
           </h1>
+          <p className="board-hierarchy">
+            What JARVIS is doing → what needs your decision → what happened
+          </p>
           <p>{subtitle}</p>
           {error ? (
             <p style={{ color: "var(--danger-ink)", marginTop: 8, fontSize: 13.5 }}>

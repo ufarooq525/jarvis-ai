@@ -15,6 +15,7 @@ import { BrowserPage } from "./BrowserPage";
 import { SkillsPage } from "./SkillsPage";
 import { OpsPage } from "./OpsPage";
 import { ModelsPage } from "./ModelsPage";
+import { GoalDetailPage } from "./GoalDetailPage";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
@@ -26,6 +27,7 @@ createRoot(document.getElementById("root")!).render(
             <Route index element={<BoardPage />} />
             <Route path="mission" element={<MissionPage />} />
             <Route path="goals" element={<GoalsPage />} />
+            <Route path="goals/:id" element={<GoalDetailPage />} />
             <Route path="world" element={<EntitiesPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="ops" element={<OpsPage />} />

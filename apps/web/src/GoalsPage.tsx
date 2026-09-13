@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useJarvis } from "./store/JarvisProvider";
-import type { Stage } from "./store/types";
 
 const CHIP: Record<string, [string, string]> = {
   stated: ["c-stated", "Stated"],
@@ -24,7 +23,8 @@ const MET: Record<string, string> = {
 type Filter = "all" | "shadow" | "live" | "done";
 
 export function GoalsPage() {
-  const { goals, openDrawer, loading, error, refresh } = useJarvis();
+  const { goals, loading, error, refresh } = useJarvis();
+  const navigate = useNavigate();
   const [filter, setFilter] = useState<Filter>("all");
 
   const list = goals.filter((g) => {
@@ -99,7 +99,7 @@ export function GoalsPage() {
                   className="row"
                   key={g.id}
                   style={{ ["--d" as string]: `${Math.min(i * 30, 180)}ms` }}
-                  onClick={() => openDrawer(g.id)}
+                  onClick={() => navigate(`/goals/${g.id}`)}
                 >
                   <span className={`chip ${c[0]}`}>{c[1]}</span>
                   <div>

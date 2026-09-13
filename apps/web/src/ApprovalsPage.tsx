@@ -65,12 +65,13 @@ export function ApprovalsPage() {
             <h1>Approvals</h1>
             <p>
               Confirm / reject Live-shaped proposals. Approval applies to this plan only — never
-              remembered. Shadow plans still use the Board drawer.
+              remembered. Shadow plans still use the Board drawer.{" "}
+              <b>Demo queue is practice only</b> — not Live verification truth.
             </p>
             {error ? <p style={{ color: "var(--danger-ink)", marginTop: 8 }}>{error}</p> : null}
           </div>
-          <button type="button" className="btn" disabled={busy} onClick={() => void onDemo()}>
-            {busy ? "Working…" : "Queue Live demo"}
+          <button type="button" className="btn sec" disabled={busy} onClick={() => void onDemo()}>
+            {busy ? "Working…" : "Queue practice demo"}
           </button>
         </div>
 
@@ -81,7 +82,7 @@ export function ApprovalsPage() {
           </div>
           {rows.length === 0 ? (
             <div className="empty" style={{ margin: 16, borderStyle: "dashed" }}>
-              Nothing in the inbox. Queue a Live demo or wait for a Live-shaped proposal.
+              Nothing in the inbox. Queue a practice demo or wait for a Live-shaped proposal.
             </div>
           ) : (
             rows.map((r) => (

@@ -18,6 +18,26 @@ export function AttentionRail({
   const [now, setNow] = useState<WmNowDto | null>(null);
   const [pending, setPending] = useState<EscalationDto[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [badge, setBadge] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      void listEscalations("pending")
+        .then((e) => {
+          if (!cancelled) setBadge((e.escalations ?? []).length);
+        })
+        .catch(() => {
+          /* quiet when API down */
+        });
+    };
+    tick();
+    const t = window.setInterval(tick, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(t);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -26,7 +46,9 @@ export function AttentionRail({
       .then(([n, e]) => {
         if (cancelled) return;
         setNow(n);
-        setPending(e.escalations ?? []);
+        const rows = e.escalations ?? [];
+        setPending(rows);
+        setBadge(rows.length);
         setError(null);
       })
       .catch((err: Error) => {
@@ -46,45 +68,40 @@ export function AttentionRail({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const count = pending.length;
-
   return (
     <>
       <button
         type="button"
         className="attn-edge"
-        aria-label={`Open attention${count ? ` (${count} pending)` : ""}`}
+        aria-label={`Open attention${badge ? ` (${badge} pending)` : ""}`}
         title="Attention"
         onClick={onOpen}
-        hidden={open}
+        style={{ display: open ? "none" : undefined }}
       >
         <span className="attn-edge-label">Attention</span>
-        {count > 0 ? <em className="attn-edge-count">{count}</em> : null}
+        {badge > 0 ? <em className="attn-edge-count">{badge}</em> : null}
       </button>
 
-      <div
-        className={`scrim${open ? " on" : ""}`}
-        onClick={onClose}
-        aria-hidden={!open}
-      />
+      <div className={`scrim${open ? " on" : ""}`} onClick={onClose} aria-hidden={!open} />
       <aside
         className={`drawer attn-drawer${open ? " on" : ""}`}
         role="dialog"
         aria-modal={open}
         aria-label="Attention"
-        hidden={!open}
       >
-        <div className="drawer-hd">
-          <div>
-            <h2>Attention</h2>
-            <p>What needs your decision</p>
+        <div className="dr-hd">
+          <div className="dr-top">
+            <div>
+              <h2>Attention</h2>
+              <p>What needs your decision</p>
+            </div>
+            <button type="button" className="btn sec" onClick={onClose} aria-label="Close attention">
+              Close
+            </button>
           </div>
-          <button type="button" className="btn sec" onClick={onClose} aria-label="Close attention">
-            Close
-          </button>
         </div>
 
-        <div className="drawer-b">
+        <div className="dr-body">
           {error ? <p style={{ color: "var(--danger-ink)" }}>{error}</p> : null}
 
           <div className="panel" style={{ marginBottom: 14 }}>
@@ -113,7 +130,7 @@ export function AttentionRail({
           <div className="panel">
             <div className="panel-hd">
               <h2>Pending decisions</h2>
-              <p>Approvals inbox — not demo truth for Live.</p>
+              <p>Approvals inbox — demo seed is not Live truth.</p>
             </div>
             {pending.length === 0 ? (
               <div className="empty" style={{ border: 0 }}>

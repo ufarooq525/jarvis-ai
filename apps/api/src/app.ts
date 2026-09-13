@@ -58,7 +58,7 @@ export function createApp() {
     return c.json({
       ok: true,
       service: "jarvis-api",
-      phase: "10",
+      phase: "12",
       adapter: adapterName,
       mode_default: "shadow",
       kill_switch: killSwitchStatus(),
@@ -72,6 +72,8 @@ export function createApp() {
       skills_plane: "shadow",
       ops_plane: "shadow",
       model_plane: "router",
+      voice_plane: "opt-in",
+      ui_plane: "command-center",
     });
   });
 
@@ -79,18 +81,66 @@ export function createApp() {
     const { adapterName, dbPath, controlApiBase } = getJarvisRuntime();
     return c.json({
       product: "JARVIS",
-      phase: "10",
+      phase: "12",
       adapter: adapterName,
-      note: "Phase 9–10: ops SHADOW drafts + model router; send/execute blocked",
+      note: "Phase 11–12 + Voice: Attention UI, reliability status, opt-in push-to-talk",
       computer_plane: "shadow",
       browser_plane: "shadow",
       memory_plane: "facts",
       skills_plane: "shadow",
       ops_plane: "shadow",
       model_plane: "router",
+      voice_plane: "opt-in",
+      ui_plane: "command-center",
       control_api: controlApiBase,
       persistence: dbPath === ":memory:" ? "memory" : "sqlite",
       observation_only: adapterName === "mock",
+    });
+  });
+
+  app.get("/v1/system/status", (c) => {
+    const { adapterName, dbPath, controlApiBase, projectId, engine } = getJarvisRuntime();
+    const kill = killSwitchStatus();
+    const pending = getEscalationStore().list({ status: "pending" }).length;
+    const memory = getFactStore().counts();
+    return c.json({
+      ok: true,
+      phase: "12",
+      adapter: adapterName,
+      kill_switch: kill,
+      control_api: controlApiBase,
+      project_id: projectId,
+      persistence: dbPath === ":memory:" ? "memory" : "sqlite",
+      goals: engine.store.listGoals().length,
+      escalations_pending: pending,
+      memory,
+      planes: {
+        computer: "shadow",
+        browser: "shadow",
+        skills: "shadow",
+        ops: "shadow",
+        model: "router",
+        voice: "opt-in",
+        ui: "command-center",
+      },
+      verification: {
+        unit: "pnpm verify",
+        live: "pnpm verify:live",
+        all: "pnpm verify:all",
+        demo_escalations_are_truth: false,
+      },
+      note: "Local verify is source of truth. Demo escalations are practice only.",
+    });
+  });
+
+  app.get("/v1/voice/status", (c) => {
+    return c.json({
+      plane: "opt-in",
+      always_on: false,
+      wake_word: false,
+      executes: false,
+      bypasses_live_confirm: false,
+      note: "Browser push-to-talk fills Composer text only. Enable in Settings. Shadow default.",
     });
   });
 
