@@ -29,6 +29,8 @@ import {
 import { listQuarantine } from "../../../src/world-model/quarantine.js";
 import { buildPortfolio } from "../../../src/portfolio/project.js";
 import { computerActBlocked, getComputerSnapshot } from "../../../src/computer/observe.js";
+import { ComputerRuntime } from "../../../src/computer/runtime.js";
+import { newId } from "../../../src/util/ids.js";
 
 export function createApp() {
   const app = new Hono();
@@ -47,7 +49,7 @@ export function createApp() {
     return c.json({
       ok: true,
       service: "jarvis-api",
-      phase: "H",
+      phase: "5",
       adapter: adapterName,
       mode_default: "shadow",
       kill_switch: killSwitchStatus(),
@@ -55,7 +57,7 @@ export function createApp() {
       control_api: controlApiBase,
       project_id: projectId,
       observation_only: adapterName === "mock",
-      computer_plane: "observe",
+      computer_plane: "shadow",
     });
   });
 
@@ -63,10 +65,10 @@ export function createApp() {
     const { adapterName, dbPath, controlApiBase } = getJarvisRuntime();
     return c.json({
       product: "JARVIS",
-      phase: "H",
+      phase: "5",
       adapter: adapterName,
-      note: "Phase H: computer observe-only (no click/type/shell)",
-      computer_plane: "observe",
+      note: "Phase 5: computer observe + locate + SHADOW/LIVE open (click/type blocked)",
+      computer_plane: "shadow",
       control_api: controlApiBase,
       persistence: dbPath === ":memory:" ? "memory" : "sqlite",
       observation_only: adapterName === "mock",
@@ -87,11 +89,15 @@ export function createApp() {
     if (!outcome) {
       return c.json({ error: "outcome is required" }, 400);
     }
-    const title = body.title?.trim() || outcome.slice(0, 80);
-    const domain = body.domain?.trim() || "general";
+    const title = body.title?.trim();
+    const domain = body.domain?.trim();
 
     const { engine, adapterName } = getJarvisRuntime();
-    const result = await engine.runShadowLoop({ title, outcome, domain });
+    const result = await engine.runShadowLoop({
+      title: title || undefined,
+      outcome,
+      domain: domain || undefined,
+    });
     const detail = getGoalDetail(engine, result.goal.id);
 
     return c.json({
@@ -103,6 +109,10 @@ export function createApp() {
       runs: result.runs,
       detail,
       evidence: JSON.parse(result.evidence_json) as unknown[],
+      simulated: result.simulated,
+      simulated_notice: result.simulated_notice,
+      verification: result.verification,
+      normalized: result.normalized,
     });
   });
 
@@ -124,6 +134,45 @@ export function createApp() {
       evidence: nodes,
       evidence_json: engine.evidence.exportJson(id),
     });
+  });
+
+  // ——— Phase 1: cancel / replan ———
+
+  app.post("/v1/goals/:id/cancel", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    const { engine, adapterName } = getJarvisRuntime();
+    try {
+      const result = await engine.cancelGoal(c.req.param("id"), body.reason ?? "api cancel");
+      return c.json({
+        adapter: adapterName,
+        ...result,
+        detail: getGoalDetail(engine, result.goal.id),
+      });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "cancel failed" }, 400);
+    }
+  });
+
+  app.post("/v1/goals/:id/replan", async (c) => {
+    const { engine, adapterName } = getJarvisRuntime();
+    try {
+      const result = await engine.replanGoal(c.req.param("id"));
+      return c.json({
+        adapter: adapterName,
+        message: result.message,
+        decision_outcome: result.decision_outcome,
+        decision_id: result.decision_id,
+        goal: result.goal,
+        runs: result.runs,
+        simulated: result.simulated,
+        simulated_notice: result.simulated_notice,
+        verification: result.verification,
+        partial: result.partial,
+        detail: getGoalDetail(engine, result.goal.id),
+      });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "replan failed" }, 400);
+    }
   });
 
   // ——— Phase E: Strong-confirm → Live ———
@@ -153,34 +202,26 @@ export function createApp() {
   });
 
   app.get("/v1/goals/:id/live-status", async (c) => {
-    const { engine, adapter, adapterName } = getJarvisRuntime();
+    const { engine, adapterName } = getJarvisRuntime();
     const id = c.req.param("id");
-    const goal = engine.store.goals.get(id);
-    if (!goal) return c.json({ error: "goal not found" }, 404);
-    const runs = [...engine.store.runs.values()].filter((r) => r.goal_id === id && r.mode === "live");
-    const latest = runs[runs.length - 1];
-    let os: Awaited<ReturnType<typeof adapter.getRun>> = null;
-    if (latest?.os_run_id) {
-      try {
-        os = await adapter.getRun(latest.os_run_id);
-      } catch (e) {
-        return c.json({
-          adapter: adapterName,
-          goal_id: id,
-          run: latest,
-          os_run: null,
-          error: e instanceof Error ? e.message : "getRun failed",
-        });
-      }
+    try {
+      const synced = await engine.syncLiveRun(id);
+      return c.json({
+        adapter: adapterName,
+        goal_id: id,
+        goal_mode: synced.goal.mode,
+        trust_tier: synced.goal.trust_tier,
+        goal_status: synced.goal.status,
+        run: synced.run,
+        os_run: synced.os_run,
+        updated: synced.updated,
+        message: synced.message,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "live-status failed";
+      if (msg === "goal not found") return c.json({ error: msg }, 404);
+      return c.json({ error: msg }, 400);
     }
-    return c.json({
-      adapter: adapterName,
-      goal_id: id,
-      goal_mode: goal.mode,
-      trust_tier: goal.trust_tier,
-      run: latest ?? null,
-      os_run: os,
-    });
   });
 
   // ——— Phase C: journal + replay ———
@@ -265,16 +306,134 @@ export function createApp() {
     return c.json({ adapter: adapterName, ...portfolio });
   });
 
-  // ——— Phase H: computer observe ———
+  // ——— Phase 5: computer observe / locate / shadow-open ———
 
   app.get("/v1/computer/snapshot", (c) => {
     return c.json(getComputerSnapshot());
   });
 
+  app.get("/v1/computer/targets", (c) => {
+    const runtime = new ComputerRuntime();
+    return c.json({
+      targets: runtime.listTargets(),
+      note: "Read-only locate — does not launch applications",
+    });
+  });
+
+  app.post("/v1/computer/shadow-open", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      target?: string;
+      goal_id?: string;
+    };
+    if (!body.target?.trim()) {
+      return c.json({ error: "target is required (e.g. vscode, browser, terminal)" }, 400);
+    }
+    const { engine } = getJarvisRuntime();
+    const runtime = new ComputerRuntime(engine.evidence);
+    try {
+      const result = await runtime.runShadowOpen({
+        target: body.target.trim(),
+        goal_id: body.goal_id,
+      });
+      return c.json(result);
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "shadow-open failed" }, 400);
+    }
+  });
+
+  app.post("/v1/computer/live-open", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      target?: string;
+      confirm?: string;
+      goal_id?: string;
+    };
+    if (!body.target?.trim()) {
+      return c.json({ error: "target is required (e.g. notepad, vscode, browser)" }, 400);
+    }
+    const { engine } = getJarvisRuntime();
+    const runtime = new ComputerRuntime(engine.evidence);
+    try {
+      const confirmed = body.confirm?.trim() === "OPEN";
+      let goal_id = body.goal_id?.trim();
+      if (confirmed) {
+        if (!goal_id) {
+          goal_id = newId("goal");
+          const now = new Date().toISOString();
+          engine.store.saveGoal({
+            id: goal_id,
+            title: `Live open ${body.target.trim()}`,
+            outcome: `Open allowlisted app ${body.target.trim()} on host`,
+            domain: "ops",
+            status: "done",
+            priority: 1,
+            trust_tier: "APPROVED",
+            autonomy_ceiling: 2,
+            mode: "live",
+            key_results: [],
+            owner_principal_id: HUMAN_PRINCIPAL,
+            created_at: now,
+            updated_at: now,
+          });
+        }
+      }
+
+      const result = await runtime.runLiveOpen({
+        target: body.target.trim(),
+        confirm: body.confirm,
+        goal_id,
+      });
+
+      if ("need_confirm" in result) {
+        return c.json(
+          {
+            ...result,
+            error: `Strong confirmation required — type ${result.confirm_token}`,
+          },
+          428,
+        );
+      }
+
+      const live = result;
+      const decision_id = newId("dec");
+      const gid = goal_id!;
+      const head = engine.evidence.head(gid);
+      if (head) {
+        engine.journal.append({
+          id: decision_id,
+          goal_id: gid,
+          decision: live.action.ok ? "computer_live_open" : "computer_live_open_failed",
+          why: live.message,
+          alternatives: ["shadow_open", "do_not_act"],
+          evidence_head: head,
+          confidence: live.action.ok ? 0.9 : 0.4,
+          outcome: live.action.ok ? "act" : "do_not_act",
+        });
+      }
+
+      const esc = getEscalationStore().create({
+        goal_id: gid,
+        tool_id: "computer.open_app",
+        verdict_id: newId("verdict"),
+        verdict_class: "strong_confirmation",
+        reason: `Live open ${live.target_id} after typing OPEN`,
+        title: `Computer Live open: ${live.target_id}`,
+      });
+      getEscalationStore().resolve(esc.id, live.action.ok ? "approve" : "reject");
+
+      return c.json({ ...live, goal_id: gid, escalation_id: esc.id, decision_id });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "live-open failed";
+      const status = /Kill switch/i.test(msg) ? 403 : 400;
+      return c.json({ error: msg }, status);
+    }
+  });
+
   app.post("/v1/computer/act", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { action?: string };
+    const action = body.action ?? "unknown";
     try {
-      computerActBlocked(body.action ?? "unknown");
+      new ComputerRuntime().assertActAllowed(action as "click");
+      computerActBlocked(action);
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : "act blocked", act_enabled: false }, 403);
     }
@@ -491,12 +650,37 @@ export function createApp() {
         task.status = body.decision === "approve" ? "ready" : "cancelled";
         engine.store.saveTask(task);
       }
-      // Still no OS startRun — Phase E. Approve records intent only.
+
+      const decision_id = newId("dec");
+      engine.evidence.append({
+        goal_id: row.goal_id,
+        run_id: row.run_id,
+        kind: "decision",
+        principal_id: HUMAN_PRINCIPAL,
+        payload_summary: `Escalation ${body.decision}: ${row.tool_id} — ${row.reason}`,
+        correlation: { decision_id, policy_verdict_id: row.verdict_id },
+      });
+      const head = engine.evidence.head(row.goal_id);
+      if (head) {
+        engine.journal.append({
+          id: decision_id,
+          goal_id: row.goal_id,
+          decision: body.decision === "approve" ? "escalation_approved" : "escalation_rejected",
+          why: row.reason,
+          alternatives: ["stay_pending", "promote_live"],
+          evidence_head: head,
+          confidence: 1,
+          outcome: body.decision === "approve" ? "act" : "do_not_act",
+        });
+      }
+
+      // Approve records intent only — Live OS dispatch remains Strong-confirm promoteToLive.
       return c.json({
         escalation: row,
+        decision_id,
         note:
           body.decision === "approve"
-            ? "Recorded approve. Live OS startRun waits until Phase E."
+            ? "Recorded approve in journal. Live OS startRun still requires Strong-confirm promote (type LIVE)."
             : "Rejected — no Live dispatch.",
       });
     } catch (e) {

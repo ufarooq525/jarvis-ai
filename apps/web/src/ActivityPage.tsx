@@ -194,6 +194,17 @@ function ReplayPanel({
             {replay.goal?.title ?? replay.decision.decision}
           </h2>
           <p style={{ marginTop: 4 }}>{replay.decision.why}</p>
+          {replay.decision.assumptions && replay.decision.assumptions.length > 0 ? (
+            <p style={{ marginTop: 8, opacity: 0.8, fontSize: 13 }}>
+              Assumptions: {replay.decision.assumptions.join(" · ")}
+            </p>
+          ) : null}
+          {typeof replay.decision.verification_passed === "boolean" ? (
+            <p style={{ marginTop: 4, fontSize: 13 }}>
+              Verification: {replay.decision.verification_passed ? "passed" : "failed"} · confidence{" "}
+              {Math.round(replay.decision.confidence * 100)}%
+            </p>
+          ) : null}
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -214,8 +225,27 @@ function ReplayPanel({
           <i>{n.kind.slice(0, 2)}</i>
           <span>
             <b style={{ fontWeight: 600 }}>{storyLabel(n.kind)}</b>
+            {n.simulated ? (
+              <span className="chip c-shadow" style={{ marginLeft: 8 }}>
+                SIMULATED
+              </span>
+            ) : null}
             <br />
             <span style={{ opacity: 0.75 }}>{n.payload_summary}</span>
+            {(n.task_id || n.action_id || n.correlation?.tool_id) && (
+              <>
+                <br />
+                <span className="mono" style={{ opacity: 0.55, fontSize: 11 }}>
+                  {[
+                    n.task_id ? `task=${n.task_id.slice(0, 16)}` : null,
+                    n.action_id ? `act=${n.action_id.slice(0, 16)}` : null,
+                    n.correlation?.tool_id ? `tool=${n.correlation.tool_id}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </>
+            )}
           </span>
           <em>{n.at.slice(11, 19)}</em>
         </div>

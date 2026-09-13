@@ -317,7 +317,6 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
         title: "Live promote failed",
         detail: msg,
         fx: "blocked",
-        fxk: "fail",
         real: false,
         goalId: promoteId,
       });

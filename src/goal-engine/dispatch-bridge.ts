@@ -8,6 +8,7 @@ import { buildDelegationChain, JARVIS_PRINCIPAL } from "../trust/principals.js";
 import { newId, nowIso } from "../util/ids.js";
 import { isKillSwitchEngaged } from "../kill-switch.js";
 import { quarantineAdapterText } from "../world-model/quarantine.js";
+import { SHADOW_SIMULATED_NOTICE } from "./verifier.js";
 
 export class DispatchBridge {
   constructor(
@@ -23,6 +24,9 @@ export class DispatchBridge {
     decision_id: string;
     tool_id: string;
   }): Promise<{ run: AgentRun; verdict: PolicyVerdict; skipped?: string }> {
+    // Manifest must exist before any replay — prevents unregistered-tool bypass via idempotency.
+    const manifest = this.tools.require(input.tool_id);
+
     const existing = this.store.getRunByIdempotency(input.task.idempotency_key);
     if (existing) {
       return {
@@ -36,7 +40,6 @@ export class DispatchBridge {
       };
     }
 
-    const manifest = this.tools.require(input.tool_id);
     const verdict = classifyProposal({
       goal: input.goal,
       manifest,
@@ -45,10 +48,17 @@ export class DispatchBridge {
 
     this.evidence.append({
       goal_id: input.goal.id,
+      task_id: input.task.id,
       kind: "policy_verdict",
       principal_id: JARVIS_PRINCIPAL,
       payload_summary: `${verdict.class}: ${verdict.reason}`,
-      correlation: { decision_id: input.decision_id, policy_verdict_id: verdict.id },
+      simulated: input.goal.mode === "shadow" || input.goal.trust_tier === "SHADOW",
+      correlation: {
+        decision_id: input.decision_id,
+        policy_verdict_id: verdict.id,
+        tool_id: input.tool_id,
+        jarvis_task_id: input.task.id,
+      },
     });
 
     if (verdict.class === "reject") {
@@ -116,10 +126,16 @@ export class DispatchBridge {
       idempotency_key: input.task.idempotency_key,
     };
 
+    const simulated = effectiveMode === "shadow";
+    const action_id = newId("act");
+    const task_id = input.task.id;
+
     const sim = await this.adapter.proposeRun(spec);
     this.evidence.append({
       goal_id: input.goal.id,
       run_id: correlation.jarvis_run_id,
+      task_id,
+      action_id,
       kind: "simulation",
       principal_id: JARVIS_PRINCIPAL,
       payload_summary: quarantineAdapterText({
@@ -127,24 +143,75 @@ export class DispatchBridge {
         text: sim.predicted_summary,
         goal_id: input.goal.id,
       }).safe_summary,
-      correlation: { decision_id: input.decision_id, policy_verdict_id: verdict.id },
+      simulated,
+      correlation: {
+        decision_id: input.decision_id,
+        policy_verdict_id: verdict.id,
+        tool_id: input.tool_id,
+        jarvis_task_id: task_id,
+      },
     });
 
-    const osRecord = await this.adapter.startRun(spec);
+    let osRecord;
+    try {
+      osRecord = await this.adapter.startRun(spec);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.evidence.append({
+        goal_id: input.goal.id,
+        run_id: correlation.jarvis_run_id,
+        task_id,
+        action_id,
+        kind: "raw_result",
+        principal_id: JARVIS_PRINCIPAL,
+        payload_summary: `adapter startRun failed: ${msg}`,
+        simulated,
+        correlation: {
+          decision_id: input.decision_id,
+          policy_verdict_id: verdict.id,
+          tool_id: input.tool_id,
+          jarvis_task_id: task_id,
+        },
+      });
+      const run: AgentRun = {
+        id: correlation.jarvis_run_id,
+        task_id: input.task.id,
+        goal_id: input.goal.id,
+        decision_id: input.decision_id,
+        principal_id: JARVIS_PRINCIPAL,
+        delegation_chain: correlation.delegation_chain,
+        mode: correlation.mode,
+        policy_verdict_id: verdict.id,
+        status: "failed",
+        tool_invocations: [input.tool_id],
+      };
+      this.store.saveRun(run);
+      // Do not remember idempotency — retry may reuse the same key.
+      return { run, verdict, skipped: msg };
+    }
+
+    const toolSummary = quarantineAdapterText({
+      source: "adapter.startRun",
+      text: osRecord.summary,
+      goal_id: input.goal.id,
+    }).safe_summary;
     this.evidence.append({
       goal_id: input.goal.id,
       run_id: correlation.jarvis_run_id,
+      task_id,
+      action_id,
       kind: "tool_invocation",
       principal_id: JARVIS_PRINCIPAL,
-      payload_summary: quarantineAdapterText({
-        source: "adapter.startRun",
-        text: osRecord.summary,
-        goal_id: input.goal.id,
-      }).safe_summary,
+      payload_summary: simulated
+        ? `${toolSummary} — ${SHADOW_SIMULATED_NOTICE}`
+        : toolSummary,
+      simulated,
       correlation: {
         decision_id: input.decision_id,
         policy_verdict_id: verdict.id,
         os_run_id: osRecord.os_run_id,
+        tool_id: input.tool_id,
+        jarvis_task_id: task_id,
       },
     });
 
@@ -178,6 +245,8 @@ export class DispatchBridge {
     project_id?: string;
     approver?: string;
   }): Promise<{ run: AgentRun; verdict: PolicyVerdict; skipped?: string }> {
+    const manifest = this.tools.require(input.tool_id);
+
     const existing = this.store.getRunByIdempotency(input.task.idempotency_key);
     if (existing) {
       return {
@@ -198,7 +267,6 @@ export class DispatchBridge {
       throw new Error("Kill switch engaged");
     }
 
-    const manifest = this.tools.require(input.tool_id);
     const verdict = classifyProposal({
       goal: input.goal,
       manifest,
@@ -207,10 +275,17 @@ export class DispatchBridge {
 
     this.evidence.append({
       goal_id: input.goal.id,
+      task_id: input.task.id,
       kind: "policy_verdict",
       principal_id: JARVIS_PRINCIPAL,
       payload_summary: `${verdict.class}: ${verdict.reason} (post Strong-confirm)`,
-      correlation: { decision_id: input.decision_id, policy_verdict_id: verdict.id },
+      simulated: false,
+      correlation: {
+        decision_id: input.decision_id,
+        policy_verdict_id: verdict.id,
+        tool_id: input.tool_id,
+        jarvis_task_id: input.task.id,
+      },
     });
 
     if (verdict.class === "reject") {
@@ -232,6 +307,7 @@ export class DispatchBridge {
     }
 
     // Strong-confirm already collected — proceed even if class is approval_required.
+    const action_id = newId("act");
     const correlation = {
       jarvis_goal_id: input.goal.id,
       jarvis_task_id: input.task.id,
@@ -262,6 +338,8 @@ export class DispatchBridge {
     this.evidence.append({
       goal_id: input.goal.id,
       run_id: correlation.jarvis_run_id,
+      task_id: input.task.id,
+      action_id,
       kind: "simulation",
       principal_id: JARVIS_PRINCIPAL,
       payload_summary: quarantineAdapterText({
@@ -269,13 +347,21 @@ export class DispatchBridge {
         text: sim.predicted_summary,
         goal_id: input.goal.id,
       }).safe_summary,
-      correlation: { decision_id: input.decision_id, policy_verdict_id: verdict.id },
+      simulated: false,
+      correlation: {
+        decision_id: input.decision_id,
+        policy_verdict_id: verdict.id,
+        tool_id: input.tool_id,
+        jarvis_task_id: input.task.id,
+      },
     });
 
     const osRecord = await this.adapter.startRun(spec);
     this.evidence.append({
       goal_id: input.goal.id,
       run_id: correlation.jarvis_run_id,
+      task_id: input.task.id,
+      action_id,
       kind: "tool_invocation",
       principal_id: JARVIS_PRINCIPAL,
       payload_summary: quarantineAdapterText({
@@ -283,10 +369,13 @@ export class DispatchBridge {
         text: osRecord.summary,
         goal_id: input.goal.id,
       }).safe_summary,
+      simulated: false,
       correlation: {
         decision_id: input.decision_id,
         policy_verdict_id: verdict.id,
         os_run_id: osRecord.os_run_id,
+        tool_id: input.tool_id,
+        jarvis_task_id: input.task.id,
       },
     });
 

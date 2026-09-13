@@ -32,6 +32,17 @@ export interface EvidenceNode {
   payload_summary: string;
   at: string;
   prev_id?: string;
+  run_id?: string;
+  task_id?: string;
+  action_id?: string;
+  simulated?: boolean;
+  correlation?: {
+    decision_id?: string;
+    policy_verdict_id?: string;
+    os_run_id?: string;
+    tool_id?: string;
+    jarvis_task_id?: string;
+  };
 }
 
 export interface RunRow {
@@ -133,7 +144,9 @@ export interface DecisionRecordDto {
   evidence_head: string;
   expected?: string;
   actual?: string;
+  assumptions?: string[];
   confidence: number;
+  verification_passed?: boolean;
   outcome: string;
 }
 
@@ -433,8 +446,9 @@ export function getPortfolio(domain?: string) {
 
 export interface ComputerSnapshotDto {
   at: string;
-  plane: "observe";
+  plane: "observe" | "shadow";
   act_enabled: false;
+  live_open_enabled?: boolean;
   host: { hostname: string; platform: string; arch: string; release: string };
   resources: {
     cpu_count: number;
@@ -443,9 +457,124 @@ export interface ComputerSnapshotDto {
     uptime_hours: number;
   };
   process: { node: string; pid: number; cwd_preview: string };
+  capabilities?: {
+    observe: true;
+    locate: true;
+    shadow_open: true;
+    click: false;
+    type: false;
+    scroll: false;
+    focus_window: false;
+    live_open: boolean;
+  };
   note: string;
+}
+
+export interface ComputerLocateDto {
+  target_id: string;
+  found: boolean;
+  resolved_command?: string;
+  method: string;
+  detail: string;
+}
+
+export interface ComputerTargetDto {
+  id: string;
+  display_name: string;
+  aliases: string[];
+  locate: ComputerLocateDto;
+}
+
+export interface ComputerShadowOpenDto {
+  target_id: string;
+  locate: ComputerLocateDto;
+  action: {
+    id: string;
+    action: string;
+    mode: "shadow" | "live";
+    simulated: boolean;
+    simulated_notice: string;
+    ok: boolean;
+    summary: string;
+    verification?: {
+      passed: boolean;
+      checks: Array<{ id: string; ok: boolean; detail: string }>;
+      summary: string;
+    };
+  };
+  message: string;
+  simulated: true;
+  simulated_notice: string;
+}
+
+export interface ComputerLiveOpenDto {
+  target_id: string;
+  locate: ComputerLocateDto;
+  action: {
+    id: string;
+    action: string;
+    mode: "shadow" | "live";
+    simulated: boolean;
+    simulated_notice: string;
+    ok: boolean;
+    summary: string;
+    verification?: {
+      passed: boolean;
+      checks: Array<{ id: string; ok: boolean; detail: string }>;
+      summary: string;
+    };
+  };
+  message: string;
+  simulated: false;
+  live_notice: string;
+  pid?: number;
+  goal_id?: string;
+}
+
+export interface ComputerLiveOpenNeedConfirmDto {
+  need_confirm: true;
+  confirm_token: "OPEN";
+  target_id: string;
+  locate: ComputerLocateDto;
+  message: string;
+  error?: string;
 }
 
 export function getComputerSnapshot() {
   return request<ComputerSnapshotDto>("/v1/computer/snapshot");
+}
+
+export function getComputerTargets() {
+  return request<{ targets: ComputerTargetDto[]; note: string }>("/v1/computer/targets");
+}
+
+export function postComputerShadowOpen(body: { target: string; goal_id?: string }) {
+  return request<ComputerShadowOpenDto>("/v1/computer/shadow-open", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export async function postComputerLiveOpen(body: {
+  target: string;
+  confirm?: string;
+  goal_id?: string;
+}): Promise<ComputerLiveOpenDto | ComputerLiveOpenNeedConfirmDto> {
+  const res = await fetch(`${API_BASE}/v1/computer/live-open`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as
+    | ComputerLiveOpenDto
+    | ComputerLiveOpenNeedConfirmDto
+    | { error?: string };
+  if (res.status === 428 && data && "need_confirm" in data && data.need_confirm) {
+    return data;
+  }
+  if (!res.ok) {
+    throw new Error(("error" in data && data.error) || `Request failed (${res.status})`);
+  }
+  return data as ComputerLiveOpenDto;
 }

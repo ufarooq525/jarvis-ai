@@ -98,4 +98,9 @@ export class PersistedStore extends MemoryStore {
       )
       .run(key, run_id);
   }
+
+  override clearIdempotency(key: string): void {
+    super.clearIdempotency(key);
+    this.db.prepare(`DELETE FROM idempotency WHERE key = ?`).run(key);
+  }
 }

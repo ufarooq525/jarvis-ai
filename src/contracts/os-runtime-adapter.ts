@@ -77,17 +77,61 @@ export interface OsRuntimeAdapter {
 
   /**
    * Dry-run / simulate. Mock always supports this.
-   * Future Umer adapter may throw or return Approve-only if OS has no dry-run.
+   * Umer adapter returns local prediction (OS has no dry-run endpoint).
    */
   proposeRun(spec: RunSpec): Promise<SimulateResult>;
 
   /**
    * In shadow mode adapters MUST NOT cause real side effects.
-   * Mock returns noop_shadow. Live Umer adapter is out of scope for §16.
+   * Mock/Umer return noop_shadow. Live Umer posts work-graph plan.
    */
   startRun(spec: RunSpec): Promise<OsRunRecord>;
 
   getRun(os_run_id: string): Promise<OsRunRecord | null>;
 
   cancelRun(os_run_id: string): Promise<{ ok: boolean; summary: string }>;
+
+  /**
+   * Controlled polling fallback (NATS subscribe not wired in JARVIS yet).
+   * Calls onUpdate on each poll; resolves when terminal status or timeout.
+   */
+  subscribeRun?(
+    os_run_id: string,
+    onUpdate: (record: OsRunRecord) => void,
+    opts?: { interval_ms?: number; timeout_ms?: number },
+  ): Promise<OsRunRecord | null>;
+}
+
+export function isTerminalOsStatus(status: OsRunRecord["status"]): boolean {
+  return (
+    status === "succeeded" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "noop_shadow" ||
+    status === "simulated"
+  );
+}
+
+/** Shared poll loop for adapters that implement getRun. */
+export async function pollSubscribeRun(
+  getRun: (os_run_id: string) => Promise<OsRunRecord | null>,
+  os_run_id: string,
+  onUpdate: (record: OsRunRecord) => void,
+  opts?: { interval_ms?: number; timeout_ms?: number },
+): Promise<OsRunRecord | null> {
+  const interval = opts?.interval_ms ?? 500;
+  const timeout = opts?.timeout_ms ?? 15_000;
+  const started = Date.now();
+  let last: OsRunRecord | null = null;
+
+  while (Date.now() - started < timeout) {
+    const row = await getRun(os_run_id);
+    if (row) {
+      last = row;
+      onUpdate(row);
+      if (isTerminalOsStatus(row.status)) return row;
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return last;
 }

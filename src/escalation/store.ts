@@ -19,9 +19,9 @@ export interface Escalation {
 
 const DEFAULT_TTL_MS = 15 * 60 * 1000;
 
-/** In-memory confirm/inform queue — Phase B. */
+/** Confirm/inform queue — memory base; PersistedEscalationStore write-through. */
 export class EscalationStore {
-  private readonly byId = new Map<string, Escalation>();
+  protected readonly byId = new Map<string, Escalation>();
 
   create(input: {
     goal_id: string;
@@ -87,6 +87,15 @@ export class EscalationStore {
   clear(): void {
     this.byId.clear();
   }
+
+  /** Hydrate from persistence without re-creating IDs. */
+  protected loadOne(row: Escalation): void {
+    this.byId.set(row.id, row);
+  }
+
+  protected allRows(): Escalation[] {
+    return [...this.byId.values()];
+  }
 }
 
 let singleton: EscalationStore | null = null;
@@ -94,6 +103,10 @@ let singleton: EscalationStore | null = null;
 export function getEscalationStore(): EscalationStore {
   if (!singleton) singleton = new EscalationStore();
   return singleton;
+}
+
+export function bindEscalationStore(store: EscalationStore): void {
+  singleton = store;
 }
 
 export function resetEscalationStore(): void {

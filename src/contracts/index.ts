@@ -8,3 +8,4 @@ export type {
   RunSpec,
   SimulateResult,
 } from "./os-runtime-adapter.js";
+export { isTerminalOsStatus, pollSubscribeRun } from "./os-runtime-adapter.js";

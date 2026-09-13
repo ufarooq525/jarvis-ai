@@ -2,12 +2,13 @@ import os from "node:os";
 import { quarantineAdapterText } from "../world-model/quarantine.js";
 import { nowIso } from "../util/ids.js";
 
-/** Observe plane only — never click, type, or shell. */
+/** Observe plane — never click, type, or shell from this module. */
 
 export interface ComputerSnapshot {
   at: string;
-  plane: "observe";
+  plane: "observe" | "shadow";
   act_enabled: false;
+  live_open_enabled: true;
   host: {
     hostname: string;
     platform: string;
@@ -25,6 +26,16 @@ export interface ComputerSnapshot {
     pid: number;
     cwd_preview: string;
   };
+  capabilities: {
+    observe: true;
+    locate: true;
+    shadow_open: true;
+    click: false;
+    type: false;
+    scroll: false;
+    focus_window: false;
+    live_open: true;
+  };
   note: string;
 }
 
@@ -37,8 +48,9 @@ export function getComputerSnapshot(): ComputerSnapshot {
 
   return {
     at: nowIso(),
-    plane: "observe",
+    plane: "shadow",
     act_enabled: false,
+    live_open_enabled: true,
     host: {
       hostname: os.hostname(),
       platform: os.platform(),
@@ -56,12 +68,22 @@ export function getComputerSnapshot(): ComputerSnapshot {
       pid: process.pid,
       cwd_preview: cwdSafe,
     },
-    note: "Observe-only. Click/type/shell act plane is disabled until sandbox + Approve.",
+    capabilities: {
+      observe: true,
+      locate: true,
+      shadow_open: true,
+      click: false,
+      type: false,
+      scroll: false,
+      focus_window: false,
+      live_open: true,
+    },
+    note: "Phase 5+: observe + locate + SHADOW open + gated LIVE open (type OPEN). Click/type/scroll remain blocked.",
   };
 }
 
 export function computerActBlocked(action: string): never {
   throw new Error(
-    `Computer act plane blocked (${action}) — Phase H is observe-only; sandbox + Approve required`,
+    `Computer act plane blocked (${action}) — use POST /v1/computer/shadow-open or /v1/computer/live-open; click/type require further sandbox work`,
   );
 }

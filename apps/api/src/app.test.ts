@@ -17,7 +17,7 @@ describe("Phase A JARVIS API", () => {
     const body = await res.json();
     expect(body.adapter).toBe("mock");
     expect(body.mode_default).toBe("shadow");
-    expect(body.phase).toBe("H");
+    expect(body.phase).toBe("5");
   });
 
   it("POST shadow-loop returns shadow mode and evidence", async () => {
@@ -36,6 +36,9 @@ describe("Phase A JARVIS API", () => {
     expect(body.adapter).toBe("mock");
     expect(body.goal.mode).toBe("shadow");
     expect(body.goal.trust_tier).toBe("SHADOW");
+    expect(body.simulated).toBe(true);
+    expect(body.simulated_notice).toBe("SIMULATED / No external action was performed");
+    expect(body.verification.passed).toBe(true);
     expect(body.runs.length).toBeGreaterThanOrEqual(2);
     expect(body.evidence.length).toBeGreaterThan(3);
 
@@ -65,6 +68,30 @@ describe("Phase A JARVIS API", () => {
       body: JSON.stringify({ title: "x" }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("cancel and replan endpoints work after forced failure via mock is unavailable — cancel done goal rejected", async () => {
+    const app = createApp();
+    const created = await app.request("/v1/goals/shadow-loop", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        outcome: "API cancel refuse completed goal omega-api-1",
+        domain: "ops",
+      }),
+    });
+    const body = await created.json();
+    expect(body.goal.status).toBe("done");
+
+    const cancelDone = await app.request(`/v1/goals/${body.goal.id}/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "should fail" }),
+    });
+    expect(cancelDone.status).toBe(400);
+
+    const replanDone = await app.request(`/v1/goals/${body.goal.id}/replan`, { method: "POST" });
+    expect(replanDone.status).toBe(400);
   });
 });
 
@@ -158,7 +185,56 @@ describe("Phase B trust / tools / escalations", () => {
       expect(resolve.status).toBe(200);
       const rbody = await resolve.json();
       expect(rbody.escalation.status).toBe("approved");
+      expect(rbody.decision_id).toBeTruthy();
+
+      const journal = await app.request("/v1/journal");
+      const jbody = await journal.json();
+      expect(
+        jbody.journal.some(
+          (r: { id: string; decision: string }) =>
+            r.id === rbody.decision_id && r.decision === "escalation_approved",
+        ),
+      ).toBe(true);
     }
+  });
+
+  it("tool manifests expose Phase 2 declaration fields", async () => {
+    const app = createApp();
+    const res = await app.request("/v1/tools/os.runtime.start_run");
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const t = body.tool;
+    expect(t.inputs).toEqual(expect.arrayContaining(["intent"]));
+    expect(t.outputs).toBeTruthy();
+    expect(t.permissions).toEqual(expect.arrayContaining(["os:plan:write"]));
+    expect(t.risk_level).toBe("high");
+    expect(t.approval_requirement).toBe("approval");
+    expect(t.reversibility).toBe("partial");
+    expect(t.execution_context).toBe("os");
+    expect(t.expected_side_effects.length).toBeGreaterThan(0);
+    expect(t.evidence_produced).toEqual(expect.arrayContaining(["tool_invocation"]));
+  });
+
+  it("escalations survive DB reopen", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "jarvis-esc-"));
+    const dbPath = join(dir, "jarvis.sqlite");
+    resetJarvisRuntime({ dbPath });
+
+    const app = createApp();
+    const demo = await app.request("/v1/escalations/demo", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: "Persist esc" }),
+    });
+    const dbody = await demo.json();
+    const escId = dbody.escalation?.id as string;
+    expect(escId).toBeTruthy();
+
+    reopenJarvisRuntime();
+    const app2 = createApp();
+    const list = await app2.request("/v1/escalations");
+    const listed = await list.json();
+    expect(listed.escalations.some((e: { id: string }) => e.id === escId)).toBe(true);
   });
 });
 
@@ -193,6 +269,14 @@ describe("Phase C persistence / journal / replay", () => {
     expect(rbody.decision.id).toBe(body.decision_id);
     expect(rbody.evidence.length).toBeGreaterThan(0);
     expect(rbody.replay_json).toContain(body.decision_id);
+    expect(rbody.decision.assumptions?.length).toBeGreaterThan(0);
+    expect(rbody.decision.verification_passed).toBe(true);
+    expect(
+      rbody.evidence.some(
+        (n: { task_id?: string; action_id?: string; simulated?: boolean }) =>
+          Boolean(n.task_id && n.action_id && n.simulated),
+      ),
+    ).toBe(true);
   });
 
   it("survives reopen on a file DB (API restart)", async () => {
@@ -503,20 +587,56 @@ describe("Phase G portfolio", () => {
   });
 });
 
-describe("Phase H computer observe", () => {
+describe("Phase 5 computer shadow plane", () => {
   beforeEach(() => {
     resetJarvisRuntime({ adapter: "mock" });
   });
 
-  it("returns observe snapshot and blocks act", async () => {
+  it("returns shadow snapshot, lists targets, shadow-opens, and blocks act", async () => {
     const app = createApp();
     const snap = await app.request("/v1/computer/snapshot");
     expect(snap.status).toBe(200);
     const body = await snap.json();
-    expect(body.plane).toBe("observe");
+    expect(body.plane).toBe("shadow");
     expect(body.act_enabled).toBe(false);
+    expect(body.live_open_enabled).toBe(true);
+    expect(body.capabilities.shadow_open).toBe(true);
     expect(body.host.platform).toBeTruthy();
     expect(body.resources.cpu_count).toBeGreaterThan(0);
+
+    const targets = await app.request("/v1/computer/targets");
+    expect(targets.status).toBe(200);
+    const tJson = await targets.json();
+    expect(tJson.targets.length).toBeGreaterThanOrEqual(5);
+
+    const open = await app.request("/v1/computer/shadow-open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "notepad" }),
+    });
+    expect(open.status).toBe(200);
+    const openBody = await open.json();
+    expect(openBody.simulated).toBe(true);
+    expect(openBody.action.mode).toBe("shadow");
+    expect(openBody.action.verification.passed).toBe(true);
+    expect(String(openBody.message)).toMatch(/SIMULATED/);
+
+    const need = await app.request("/v1/computer/live-open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: "notepad" }),
+    });
+    expect(need.status).toBe(428);
+    const needBody = await need.json();
+    expect(needBody.need_confirm).toBe(true);
+    expect(needBody.confirm_token).toBe("OPEN");
+
+    const bad = await app.request("/v1/computer/shadow-open", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(bad.status).toBe(400);
 
     const act = await app.request("/v1/computer/act", {
       method: "POST",
@@ -527,8 +647,9 @@ describe("Phase H computer observe", () => {
 
     const tools = await app.request("/v1/tools");
     const tbody = await tools.json();
-    expect(
-      tbody.tools.some((t: { tool_id: string }) => t.tool_id === "computer.observe.snapshot"),
-    ).toBe(true);
+    const ids = tbody.tools.map((t: { tool_id: string }) => t.tool_id);
+    expect(ids).toContain("computer.observe.snapshot");
+    expect(ids).toContain("computer.locate");
+    expect(ids).toContain("computer.open_app");
   });
 });

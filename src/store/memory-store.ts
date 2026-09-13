@@ -50,6 +50,10 @@ export class MemoryStore {
   rememberIdempotency(key: string, run_id: string): void {
     this.idempotency.set(key, run_id);
   }
+
+  clearIdempotency(key: string): void {
+    this.idempotency.delete(key);
+  }
 }
 
 function tokenizeOverlap(a: string, b: string): boolean {

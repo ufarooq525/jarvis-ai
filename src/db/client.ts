@@ -69,6 +69,14 @@ function migrate(db: JarvisDb): void {
       new Date().toISOString(),
     );
   }
+  if (current < 3) {
+    const sql = readFileSync(join(HERE, "migrations", "003_escalations.sql"), "utf8");
+    db.exec(sql);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+      3,
+      new Date().toISOString(),
+    );
+  }
 }
 
 export function getSetting(db: JarvisDb, key: string): string | null {
@@ -88,6 +96,7 @@ export function setSetting(db: JarvisDb, key: string, value: string): void {
 /** Wipe all domain tables (tests / reset). Keeps schema + settings. */
 export function clearJarvisDb(db: JarvisDb): void {
   db.exec(`
+    DELETE FROM escalations;
     DELETE FROM decision_records;
     DELETE FROM evidence_heads;
     DELETE FROM evidence_nodes;

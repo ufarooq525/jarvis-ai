@@ -7,6 +7,7 @@ import type {
   RunSpec,
   SimulateResult,
 } from "../../contracts/os-runtime-adapter.js";
+import { pollSubscribeRun } from "../../contracts/os-runtime-adapter.js";
 import { newId, nowIso } from "../../util/ids.js";
 import { resolveControlApiBase } from "../../config.js";
 import { getOsProjectId } from "../../connection.js";
@@ -15,6 +16,9 @@ import { ControlApiClient, type FetchLike } from "./http-client.js";
 export interface UmerOsAdapterOptions {
   baseUrl?: string;
   fetchImpl?: FetchLike;
+  /** Principal used for CancelWork CEO commands (verified against OS contracts). */
+  cancel_actor_id?: string;
+  cancel_agent_id?: string;
 }
 
 type AgentsResponse = {
@@ -58,19 +62,41 @@ type AgentRunRecord = {
 };
 
 /**
- * Read-only Umer OS adapter (Phase D).
- * GETs only against Control API. Shadow startRun stays local noop.
- * Live startRun is NotImplemented until Phase E.
+ * Umer OS adapter — Goal Engine talks only through OsRuntimeAdapter.
+ *
+ * Verified Control API routes (umer-ai-os apps/control-api/src/server.ts):
+ * - GET  /v1/agents
+ * - GET  /v1/dashboard
+ * - GET  /v1/agent-runs?status=running
+ * - GET  /v1/agent-runs/:workPackageId
+ * - GET  /v1/gates/pending
+ * - POST /v1/work-graph/:projectId/plan   (Live only)
+ * - POST /v1/commands  CancelWork         (best-effort cancel)
+ *
+ * No OS dry-run; no NATS in JARVIS — subscribeRun uses controlled polling.
  */
 export class UmerOsRuntimeAdapter implements OsRuntimeAdapter {
   readonly name = "umer-read";
   readonly client: ControlApiClient;
+
+  /** JARVIS correlation retained across getRun polls. */
+  private readonly correlationByOsRun = new Map<string, CorrelationIds>();
+  /** Live idempotency_key → os_run_id (adapter-level duplicate dispatch guard). */
+  private readonly liveIdempotency = new Map<string, string>();
+  private readonly cancelActorId: string;
+  private readonly cancelAgentId: string;
 
   constructor(opts: UmerOsAdapterOptions = {}) {
     this.client = new ControlApiClient(
       opts.baseUrl ?? resolveControlApiBase(),
       opts.fetchImpl,
     );
+    this.cancelActorId =
+      opts.cancel_actor_id ??
+      process.env.JARVIS_OS_APPROVER?.trim() ??
+      "human.ceo";
+    this.cancelAgentId =
+      opts.cancel_agent_id ?? process.env.JARVIS_OS_CANCEL_AGENT_ID?.trim() ?? "jarvis.adapter";
   }
 
   async listCapabilities(): Promise<OsCapability[]> {
@@ -165,10 +191,9 @@ export class UmerOsRuntimeAdapter implements OsRuntimeAdapter {
   }
 
   async proposeRun(spec: RunSpec): Promise<SimulateResult> {
-    // OS has no dry-run — local prediction only (no HTTP).
     return {
-      predicted_summary: `Observe-only simulate ${spec.tool_id} (no OS dry-run; Phase D)`,
-      blast_radius: "local",
+      predicted_summary: `Local simulate ${spec.tool_id} for goal ${spec.correlation.jarvis_goal_id} (OS has no dry-run)`,
+      blast_radius: spec.mode === "live" ? "account" : "local",
       side_effects: false,
       conflicts: [],
     };
@@ -176,14 +201,31 @@ export class UmerOsRuntimeAdapter implements OsRuntimeAdapter {
 
   async startRun(spec: RunSpec): Promise<OsRunRecord> {
     if (spec.mode !== "live") {
-      // Shadow: local noop — must not call Control API writes.
-      return {
-        os_run_id: newId("umer_shadow"),
+      const os_run_id = newId("umer_shadow");
+      const record: OsRunRecord = {
+        os_run_id,
         status: "noop_shadow",
         summary: `SHADOW noop via umer-read — would invoke ${spec.tool_id} (no OS write)`,
         correlation: spec.correlation,
         started_at: nowIso(),
         finished_at: nowIso(),
+      };
+      this.correlationByOsRun.set(os_run_id, spec.correlation);
+      return record;
+    }
+
+    const existingOs = this.liveIdempotency.get(spec.idempotency_key);
+    if (existingOs) {
+      const cached = await this.getRun(existingOs);
+      if (cached) return cached;
+      // Fall through if observation lost — do not double-post blindly; return stub from map.
+      const corr = this.correlationByOsRun.get(existingOs) ?? spec.correlation;
+      return {
+        os_run_id: existingOs,
+        status: "running",
+        summary: "Idempotent Live replay — prior os_run_id returned",
+        correlation: corr,
+        started_at: nowIso(),
       };
     }
 
@@ -219,46 +261,95 @@ export class UmerOsRuntimeAdapter implements OsRuntimeAdapter {
       message?: string;
     }>(path, { approver });
 
-    // 202 body has no workPackageId — use correlation/exec as interim os_run_id handle.
     const os_run_id =
       accepted.correlationId ||
       accepted.execId ||
       `plan:${projectId}:${Date.now()}`;
+
+    this.correlationByOsRun.set(os_run_id, spec.correlation);
+    this.liveIdempotency.set(spec.idempotency_key, os_run_id);
 
     return {
       os_run_id,
       status: "running",
       summary:
         accepted.message ||
-        `Live plan accepted for project ${projectId} (approver=${approver}); poll work-graph / agent-runs`,
+        `Live plan accepted for project ${projectId} (approver=${approver}); poll GET /v1/agent-runs/:id`,
       correlation: spec.correlation,
       started_at: nowIso(),
     };
   }
 
   async getRun(os_run_id: string): Promise<OsRunRecord | null> {
+    const stored = this.correlationByOsRun.get(os_run_id);
     try {
       const row = await this.client.getJson<AgentRunRecord>(
         `/v1/agent-runs/${encodeURIComponent(os_run_id)}`,
       );
-      return mapAgentRun(os_run_id, row);
+      return mapAgentRun(os_run_id, row, stored);
     } catch (e) {
       if (e && typeof e === "object" && "status" in e && (e as { status?: number }).status === 404) {
+        // Plan correlation ids may not appear in agent-run read model yet.
+        if (stored) {
+          return {
+            os_run_id,
+            status: "running",
+            summary: "Awaiting agent-run projection (correlation retained)",
+            correlation: stored,
+            started_at: nowIso(),
+          };
+        }
         return null;
       }
       throw e;
     }
   }
 
-  async cancelRun(_os_run_id: string): Promise<{ ok: boolean; summary: string }> {
-    return {
-      ok: false,
-      summary: "cancelRun not available in Phase D (observation only)",
-    };
+  /**
+   * Best-effort cancel via CEO Command Plane:
+   * POST /v1/commands { name: "CancelWork", payload: { agentId, workPackageId } }
+   * Verified against control-api server.ts + CancelWorkPayloadSchema.
+   */
+  async cancelRun(os_run_id: string): Promise<{ ok: boolean; summary: string }> {
+    try {
+      await this.client.postJson("/v1/commands", {
+        name: "CancelWork",
+        actor: { principalId: this.cancelActorId, kind: "human" },
+        payload: {
+          agentId: this.cancelAgentId,
+          workPackageId: os_run_id,
+          reason: "JARVIS cancelRun",
+        },
+        correlationId: `jarvis-cancel-${os_run_id}`,
+        idempotencyKey: `jarvis-cancel:${os_run_id}`,
+      });
+      return {
+        ok: true,
+        summary: `CancelWork accepted for workPackageId=${os_run_id}`,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return {
+        ok: false,
+        summary: `CancelWork failed (OS may require a real task/workPackage id, not plan correlation): ${msg}`,
+      };
+    }
+  }
+
+  async subscribeRun(
+    os_run_id: string,
+    onUpdate: (record: OsRunRecord) => void,
+    opts?: { interval_ms?: number; timeout_ms?: number },
+  ): Promise<OsRunRecord | null> {
+    return pollSubscribeRun((id) => this.getRun(id), os_run_id, onUpdate, opts);
   }
 }
 
-function mapAgentRun(os_run_id: string, row: AgentRunRecord): OsRunRecord {
+function mapAgentRun(
+  os_run_id: string,
+  row: AgentRunRecord,
+  stored?: CorrelationIds,
+): OsRunRecord {
   const statusRaw = (row.status ?? "").toLowerCase();
   let status: OsRunRecord["status"] = "running";
   if (statusRaw.includes("complete") || statusRaw === "succeeded" || statusRaw === "done") {
@@ -271,7 +362,7 @@ function mapAgentRun(os_run_id: string, row: AgentRunRecord): OsRunRecord {
     status = "simulated";
   }
 
-  const placeholder: CorrelationIds = {
+  const placeholder: CorrelationIds = stored ?? {
     jarvis_goal_id: "unknown",
     jarvis_task_id: "unknown",
     jarvis_run_id: "unknown",

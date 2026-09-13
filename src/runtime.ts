@@ -4,7 +4,8 @@ import type { OsRuntimeAdapter } from "./contracts/os-runtime-adapter.js";
 import { GoalEngine as GoalEngineCtor } from "./goal-engine/engine.js";
 import { MockOsRuntimeAdapter } from "./adapters/mock/mock-os-runtime-adapter.js";
 import { UmerOsRuntimeAdapter } from "./adapters/umer-os/umer-os-runtime-adapter.js";
-import { resetEscalationStore } from "./escalation/store.js";
+import { bindEscalationStore, resetEscalationStore } from "./escalation/store.js";
+import { PersistedEscalationStore } from "./escalation/persisted-store.js";
 import { resetKillSwitchState } from "./trust/kill-switch-control.js";
 import { resetQuarantine } from "./world-model/quarantine.js";
 import { openJarvisDb, type JarvisDb, resolveJarvisDbPath } from "./db/client.js";
@@ -52,6 +53,7 @@ function buildRuntime(
 ): JarvisRuntime {
   const db = openJarvisDb(dbPath);
   bindConnectionDb(db, dbPath);
+  bindEscalationStore(new PersistedEscalationStore(db));
   const resolved = kind ?? getActiveAdapterKind();
   const adapter = createAdapter(resolved);
   const conn = getConnectionConfig();
@@ -112,6 +114,8 @@ export function setJarvisConnection(opts: {
 
 /** Test helper — drop process singleton (fresh :memory: under Vitest). */
 export function resetJarvisRuntime(opts?: { dbPath?: string; adapter?: AdapterKind }): void {
+  // Clear durable escalation rows while DB is still open.
+  resetEscalationStore();
   try {
     singleton?.db.close();
   } catch {
@@ -120,7 +124,6 @@ export function resetJarvisRuntime(opts?: { dbPath?: string; adapter?: AdapterKi
   singleton = null;
   resetConnectionOverrides();
   if (opts?.adapter) setConnectionOverrides({ adapter: opts.adapter });
-  resetEscalationStore();
   resetKillSwitchState();
   resetQuarantine();
   if (opts?.dbPath || opts?.adapter) {

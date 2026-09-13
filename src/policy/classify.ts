@@ -10,6 +10,8 @@ const TIER_RANK: Record<TrustTier, number> = {
   AUTONOMOUS: 4,
 };
 
+const HIGH_BLAST_EFFECTS = new Set(["spend", "irreversible", "publish", "send", "security"]);
+
 export function classifyProposal(input: {
   goal: Goal;
   manifest: ToolManifest;
@@ -61,12 +63,32 @@ export function classifyProposal(input: {
     };
   }
 
-  if (input.manifest.effects.includes("spend") || input.manifest.effects.includes("irreversible")) {
-    return { id, class: "strong_confirmation", reason: "High-blast effects require strong confirm", at };
+  const effects = input.manifest.effects ?? [];
+  const highBlast =
+    effects.some((e) => HIGH_BLAST_EFFECTS.has(e)) ||
+    input.manifest.approval_requirement === "strong_confirmation" ||
+    input.manifest.risk_level === "critical";
+
+  if (highBlast) {
+    return {
+      id,
+      class: "strong_confirmation",
+      reason: "High-blast / irreversible / publish-send-security requires strong confirm",
+      at,
+    };
   }
 
-  if (input.manifest.effects.includes("external") || input.manifest.effects.includes("write")) {
-    return { id, class: "approval_required", reason: "Write/external requires approval at current autonomy", at };
+  if (
+    input.manifest.approval_requirement === "approval" ||
+    effects.includes("external") ||
+    effects.includes("write")
+  ) {
+    return {
+      id,
+      class: "approval_required",
+      reason: "Write/external or manifest approval_requirement needs approval",
+      at,
+    };
   }
 
   return { id, class: "automatic", reason: "Within policy envelope", at };
