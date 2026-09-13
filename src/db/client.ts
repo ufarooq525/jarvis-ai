@@ -77,6 +77,30 @@ function migrate(db: JarvisDb): void {
       new Date().toISOString(),
     );
   }
+  if (current < 4) {
+    const sql = readFileSync(join(HERE, "migrations", "004_world_model.sql"), "utf8");
+    db.exec(sql);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+      4,
+      new Date().toISOString(),
+    );
+  }
+  if (current < 5) {
+    const sql = readFileSync(join(HERE, "migrations", "005_skills.sql"), "utf8");
+    db.exec(sql);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+      5,
+      new Date().toISOString(),
+    );
+  }
+  if (current < 6) {
+    const sql = readFileSync(join(HERE, "migrations", "006_ops.sql"), "utf8");
+    db.exec(sql);
+    db.prepare("INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)").run(
+      6,
+      new Date().toISOString(),
+    );
+  }
 }
 
 export function getSetting(db: JarvisDb, key: string): string | null {
@@ -96,6 +120,10 @@ export function setSetting(db: JarvisDb, key: string, value: string): void {
 /** Wipe all domain tables (tests / reset). Keeps schema + settings. */
 export function clearJarvisDb(db: JarvisDb): void {
   db.exec(`
+    DELETE FROM opportunities;
+    DELETE FROM skills;
+    DELETE FROM wm_links;
+    DELETE FROM wm_facts;
     DELETE FROM escalations;
     DELETE FROM decision_records;
     DELETE FROM evidence_heads;

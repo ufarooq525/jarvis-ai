@@ -267,6 +267,74 @@ async function main() {
   info(
     `Browser research visited example.com — ${research.body.facts.length} claims (${research.body.notice})`,
   );
+  if (!research.body.memory?.stored?.length) {
+    fail("Browser research did not ingest WM memory facts");
+  }
+  info(`WM memory ingested ${research.body.memory.stored.length} facts`);
+
+  const wmFacts = await getJson(`${JARVIS}/v1/wm/facts`);
+  if (!wmFacts.ok || !(wmFacts.body.facts || []).length) {
+    fail(`Expected durable WM facts: ${detail(wmFacts.body)}`);
+  }
+  info(`WM facts list count=${wmFacts.body.facts.length}`);
+
+  // ——— Phase 8 skills (SHADOW library) ———
+  const skillIngest = await postJson(`${JARVIS}/v1/skills/ingest`, {
+    title: "Live-verify research skim",
+    text: "1. Fetch allowlisted page\n2. Extract observation\n3. Store in WM\nNever invent visits",
+  });
+  if (!skillIngest.ok) fail(`skills ingest failed: ${detail(skillIngest.body)}`);
+  const skillId = skillIngest.body.skill?.id;
+  if (!skillId) fail("No skill id from ingest");
+  info(`Skill candidate ${skillId}`);
+
+  const skillPractice = await postJson(`${JARVIS}/v1/skills/${skillId}/practice`, {});
+  if (!skillPractice.ok || !skillPractice.body.skill?.practice?.ok) {
+    fail(`skills practice failed: ${detail(skillPractice.body)}`);
+  }
+  info("Skill practice passed (simulated)");
+
+  const skillVerify = await postJson(`${JARVIS}/v1/skills/${skillId}/verify`, {});
+  if (!skillVerify.ok || skillVerify.body.skill?.status !== "verified") {
+    fail(`skills verify failed: ${detail(skillVerify.body)}`);
+  }
+  info("Skill verified (still SHADOW)");
+
+  const skillExec = await postJson(`${JARVIS}/v1/skills/${skillId}/execute`, {});
+  if (skillExec.status !== 403) {
+    fail(`Expected skill execute 403, got ${skillExec.status}`);
+  }
+  info("Skill execute correctly blocked");
+
+  // ——— Phase 9 ops ———
+  const opp = await postJson(`${JARVIS}/v1/ops/opportunities`, {
+    title: "Live-verify Laravel lead",
+    company: "TestCo",
+    channel: "upwork",
+    summary: "Laravel SaaS urgent rebuild",
+  });
+  if (!opp.ok) fail(`ops create failed: ${detail(opp.body)}`);
+  const oppId = opp.body.opportunity?.id;
+  const oppDraft = await postJson(`${JARVIS}/v1/ops/opportunities/${oppId}/draft`, {});
+  if (!oppDraft.ok || !oppDraft.body.opportunity?.draft?.simulated) {
+    fail(`ops draft failed: ${detail(oppDraft.body)}`);
+  }
+  info("Ops draft created (SHADOW)");
+  const oppSend = await postJson(`${JARVIS}/v1/ops/opportunities/${oppId}/send`, {});
+  if (oppSend.status !== 403) fail(`Expected ops send 403, got ${oppSend.status}`);
+  info("Ops send correctly blocked");
+
+  // ——— Phase 10 models ———
+  const modelComplete = await postJson(`${JARVIS}/v1/models/complete`, {
+    role: "classify",
+    prompt: "Classify: Laravel freelance lead",
+  });
+  if (!modelComplete.ok || !modelComplete.body.ok) {
+    fail(`model complete failed: ${detail(modelComplete.body)}`);
+  }
+  info(
+    `Model complete via ${modelComplete.body.provenance?.provider}/${modelComplete.body.provenance?.model}`,
+  );
 
   const browserAct = await postJson(`${JARVIS}/v1/browser/act`, { action: "click" });
   if (browserAct.status !== 403) {

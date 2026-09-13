@@ -2,6 +2,7 @@ import type { GoalEngine } from "../goal-engine/engine.js";
 import type { OsRuntimeAdapter } from "../contracts/os-runtime-adapter.js";
 import { getEscalationStore } from "../escalation/store.js";
 import { nowIso } from "../util/ids.js";
+import { getFactStore } from "./fact-store.js";
 import { quarantineAdapterText } from "./quarantine.js";
 import type { WmEntity, WmNow } from "./types.js";
 
@@ -75,6 +76,10 @@ export function buildWmNow(input: {
       active_goal_id: active?.id ?? null,
       open_approval_ids: open.map((o) => o.entity_id),
       os_run_count: input.os_run_count,
+    },
+    memory: {
+      active_facts: getFactStore().counts().active,
+      stale_facts: getFactStore().counts().stale,
     },
   };
 }

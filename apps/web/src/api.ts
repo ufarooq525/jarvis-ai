@@ -394,6 +394,7 @@ export interface WmNowDto {
     open_approval_ids: string[];
     os_run_count: number;
   };
+  memory?: { active_facts: number; stale_facts: number };
   os_reachable?: boolean;
 }
 
@@ -409,6 +410,61 @@ export function listWmEntities(q?: string, types?: string) {
   return request<{ adapter: string; entities: WmEntityDto[]; quarantine: unknown[] }>(
     `/v1/wm/entities${qs ? `?${qs}` : ""}`,
   );
+}
+
+export interface WmFactDto {
+  id: string;
+  claim: string;
+  kind: string;
+  status: string;
+  confidence: number;
+  source: string;
+  source_url?: string;
+  fetched_at?: string;
+  verified_at: string;
+  goal_id?: string;
+}
+
+export function listWmFacts(opts?: { goal_id?: string; q?: string; status?: string }) {
+  const params = new URLSearchParams();
+  if (opts?.goal_id) params.set("goal_id", opts.goal_id);
+  if (opts?.q) params.set("q", opts.q);
+  if (opts?.status) params.set("status", opts.status);
+  const qs = params.toString();
+  return request<{ facts: WmFactDto[]; counts: { active: number; stale: number; invalidated: number } }>(
+    `/v1/wm/facts${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function postWmFact(body: {
+  claim: string;
+  kind?: string;
+  confidence?: number;
+  source?: string;
+  source_url?: string;
+  goal_id?: string;
+}) {
+  return request<{ fact: WmFactDto }>("/v1/wm/facts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function invalidateWmFact(id: string, reason?: string) {
+  return request<{ fact: WmFactDto }>(`/v1/wm/facts/${id}/invalidate`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function reverifyWmFact(id: string) {
+  return request<{ fact: WmFactDto }>(`/v1/wm/facts/${id}/reverify`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
 }
 
 export interface PortfolioDto {
@@ -633,6 +689,167 @@ export function postBrowserShadowResearch(body: {
   simulate_only?: boolean;
 }) {
   return request<BrowserShadowResearchDto>("/v1/browser/shadow-research", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export interface SkillDto {
+  id: string;
+  name: string;
+  version: string;
+  status: string;
+  trust_tier: string;
+  summary: string;
+  procedure: Array<{ order: number; instruction: string }>;
+  constraints: string[];
+  practice?: { ok: boolean; summary: string; simulated: true };
+  provenance: { source: string; fact_ids: string[]; source_urls: string[] };
+}
+
+export function listSkills(opts?: { status?: string; q?: string }) {
+  const params = new URLSearchParams();
+  if (opts?.status) params.set("status", opts.status);
+  if (opts?.q) params.set("q", opts.q);
+  const qs = params.toString();
+  return request<{ skills: SkillDto[] }>(`/v1/skills${qs ? `?${qs}` : ""}`);
+}
+
+export function ingestSkillText(body: { text: string; title?: string; source?: string }) {
+  return request<{ skill: SkillDto; message: string }>("/v1/skills/ingest", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function ingestSkillFromFacts(body: { fact_ids: string[]; title?: string }) {
+  return request<{ skill: SkillDto; message: string }>("/v1/skills/from-facts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function practiceSkill(id: string) {
+  return request<{ skill: SkillDto; simulated: true }>(`/v1/skills/${id}/practice`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+export function verifySkill(id: string) {
+  return request<{ skill: SkillDto; note: string }>(`/v1/skills/${id}/verify`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+export function retireSkill(id: string, reason?: string) {
+  return request<{ skill: SkillDto }>(`/v1/skills/${id}/retire`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export interface OpportunityDto {
+  id: string;
+  title: string;
+  company?: string;
+  channel: string;
+  status: string;
+  summary: string;
+  problems: string[];
+  score?: { overall: number; fit: number; urgency: number; value: number; rationale: string };
+  draft?: { subject: string; body: string; simulated: true; notice: string };
+}
+
+export function listOpportunities() {
+  return request<{ opportunities: OpportunityDto[] }>("/v1/ops/opportunities");
+}
+
+export function createOpportunity(body: {
+  title: string;
+  company?: string;
+  channel?: string;
+  summary?: string;
+}) {
+  return request<{ opportunity: OpportunityDto }>("/v1/ops/opportunities", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function createOpportunityFromFacts(body: { fact_ids: string[]; title?: string }) {
+  return request<{ opportunity: OpportunityDto }>("/v1/ops/opportunities/from-facts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function qualifyOpportunity(id: string) {
+  return request<{ opportunity: OpportunityDto }>(`/v1/ops/opportunities/${id}/qualify`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+}
+
+export function draftOpportunity(id: string) {
+  return request<{ opportunity: OpportunityDto; notice?: string }>(
+    `/v1/ops/opportunities/${id}/draft`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+}
+
+export function requestOpportunityApproval(id: string) {
+  return request<{ opportunity: OpportunityDto }>(
+    `/v1/ops/opportunities/${id}/request-approval`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    },
+  );
+}
+
+export interface ModelCompleteDto {
+  ok: boolean;
+  text: string;
+  simulated: boolean;
+  notice: string;
+  error?: string;
+  provenance: {
+    provider: string;
+    model: string;
+    role: string;
+    attempted: string[];
+    latency_ms: number;
+  };
+}
+
+export function getModelRoles() {
+  return request<{ roles: Array<{ role: string; backends: unknown[] }> }>("/v1/models/roles");
+}
+
+export function getModelHealth() {
+  return request<{
+    health: Array<{ provider: string; reachable: boolean; base_url: string; models: string[] }>;
+  }>("/v1/models/health");
+}
+
+export function postModelComplete(body: { role: string; prompt: string }) {
+  return request<ModelCompleteDto>("/v1/models/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

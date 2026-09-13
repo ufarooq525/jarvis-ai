@@ -27,6 +27,13 @@ import {
   listWmEntities,
 } from "../../../src/world-model/project.js";
 import { listQuarantine } from "../../../src/world-model/quarantine.js";
+import { getFactStore } from "../../../src/world-model/fact-store.js";
+import { ingestBrowserResearch } from "../../../src/world-model/ingest-research.js";
+import { getSkillStore } from "../../../src/skills/skill-store.js";
+import { ingestFactsToSkill, ingestTextToSkill } from "../../../src/skills/ingest.js";
+import { getOpportunityStore } from "../../../src/ops/opportunity-store.js";
+import { createOpportunityFromFacts } from "../../../src/ops/from-facts.js";
+import { getModelRouter } from "../../../src/model-router/router.js";
 import { buildPortfolio } from "../../../src/portfolio/project.js";
 import { computerActBlocked, getComputerSnapshot } from "../../../src/computer/observe.js";
 import { ComputerRuntime } from "../../../src/computer/runtime.js";
@@ -51,7 +58,7 @@ export function createApp() {
     return c.json({
       ok: true,
       service: "jarvis-api",
-      phase: "6",
+      phase: "10",
       adapter: adapterName,
       mode_default: "shadow",
       kill_switch: killSwitchStatus(),
@@ -61,6 +68,10 @@ export function createApp() {
       observation_only: adapterName === "mock",
       computer_plane: "shadow",
       browser_plane: "shadow",
+      memory_plane: "facts",
+      skills_plane: "shadow",
+      ops_plane: "shadow",
+      model_plane: "router",
     });
   });
 
@@ -68,11 +79,15 @@ export function createApp() {
     const { adapterName, dbPath, controlApiBase } = getJarvisRuntime();
     return c.json({
       product: "JARVIS",
-      phase: "6",
+      phase: "10",
       adapter: adapterName,
-      note: "Phase 6: SHADOW browser research (allowlisted GET) + computer Live open; click/type/publish blocked",
+      note: "Phase 9–10: ops SHADOW drafts + model router; send/execute blocked",
       computer_plane: "shadow",
       browser_plane: "shadow",
+      memory_plane: "facts",
+      skills_plane: "shadow",
+      ops_plane: "shadow",
+      model_plane: "router",
       control_api: controlApiBase,
       persistence: dbPath === ":memory:" ? "memory" : "sqlite",
       observation_only: adapterName === "mock",
@@ -294,6 +309,344 @@ export function createApp() {
     });
   });
 
+  // ——— Phase 7: durable WM facts ———
+
+  app.get("/v1/wm/facts", (c) => {
+    const store = getFactStore();
+    const facts = store.listFacts({
+      goal_id: c.req.query("goal_id") || undefined,
+      task_id: c.req.query("task_id") || undefined,
+      q: c.req.query("q") || undefined,
+      kind: (c.req.query("kind") as "observation" | "conclusion" | "inference" | "uncertainty") || undefined,
+      status: (c.req.query("status") as "active" | "stale" | "invalidated" | "quarantined") || undefined,
+    });
+    return c.json({ facts, counts: store.counts() });
+  });
+
+  app.post("/v1/wm/facts", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      claim?: string;
+      kind?: "observation" | "conclusion" | "inference" | "uncertainty";
+      confidence?: number;
+      source?: string;
+      source_url?: string;
+      goal_id?: string;
+      task_id?: string;
+    };
+    if (!body.claim?.trim()) return c.json({ error: "claim is required" }, 400);
+    try {
+      const fact = getFactStore().upsertFact({
+        claim: body.claim.trim(),
+        kind: body.kind ?? "observation",
+        confidence: typeof body.confidence === "number" ? body.confidence : 0.7,
+        source: body.source?.trim() || "human",
+        source_url: body.source_url,
+        goal_id: body.goal_id,
+        task_id: body.task_id,
+      });
+      return c.json({ fact });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "upsert failed" }, 400);
+    }
+  });
+
+  app.post("/v1/wm/facts/:id/invalidate", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    try {
+      const fact = getFactStore().invalidate(c.req.param("id"), body.reason);
+      return c.json({ fact });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "invalidate failed" }, 400);
+    }
+  });
+
+  app.post("/v1/wm/facts/:id/reverify", async (c) => {
+    try {
+      const fact = getFactStore().reverify(c.req.param("id"));
+      return c.json({ fact });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "reverify failed" }, 400);
+    }
+  });
+
+  app.get("/v1/wm/links", (c) => {
+    const links = getFactStore().listLinks({
+      from_id: c.req.query("from_id") || undefined,
+      to_id: c.req.query("to_id") || undefined,
+    });
+    return c.json({ links });
+  });
+
+  app.post("/v1/wm/links", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      from_id?: string;
+      to_id?: string;
+      rel?: string;
+      confidence?: number;
+      provenance?: string;
+    };
+    if (!body.from_id?.trim() || !body.to_id?.trim()) {
+      return c.json({ error: "from_id and to_id are required" }, 400);
+    }
+    const link = getFactStore().addLink({
+      from_id: body.from_id.trim(),
+      to_id: body.to_id.trim(),
+      rel: body.rel?.trim() || "related",
+      confidence: body.confidence,
+      provenance: body.provenance?.trim() || "human",
+    });
+    return c.json({ link });
+  });
+
+  // ——— Phase 8: SHADOW skill library ———
+
+  app.get("/v1/skills", (c) => {
+    const skills = getSkillStore().list({
+      status: c.req.query("status") as "candidate" | "practicing" | "verified" | "retired" | undefined,
+      q: c.req.query("q") || undefined,
+    });
+    return c.json({ skills });
+  });
+
+  app.get("/v1/skills/:id", (c) => {
+    const skill = getSkillStore().get(c.req.param("id"));
+    if (!skill) return c.json({ error: "skill not found" }, 404);
+    return c.json({ skill });
+  });
+
+  app.post("/v1/skills/ingest", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      text?: string;
+      title?: string;
+      source?: string;
+      source_urls?: string[];
+    };
+    if (!body.text?.trim()) return c.json({ error: "text is required" }, 400);
+    try {
+      const skill = ingestTextToSkill({
+        text: body.text,
+        title: body.title,
+        source: body.source,
+        source_urls: body.source_urls,
+      });
+      return c.json({ skill, message: "Candidate skill created (SHADOW)" });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "ingest failed" }, 400);
+    }
+  });
+
+  app.post("/v1/skills/from-facts", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      fact_ids?: string[];
+      title?: string;
+    };
+    if (!body.fact_ids?.length) return c.json({ error: "fact_ids required" }, 400);
+    try {
+      const skill = ingestFactsToSkill({
+        fact_ids: body.fact_ids,
+        title: body.title,
+      });
+      return c.json({ skill, message: "Candidate skill derived from WM facts (SHADOW)" });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "from-facts failed" }, 400);
+    }
+  });
+
+  app.post("/v1/skills/:id/practice", async (c) => {
+    try {
+      const skill = getSkillStore().practice(c.req.param("id"));
+      return c.json({ skill, simulated: true });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "practice failed" }, 400);
+    }
+  });
+
+  app.post("/v1/skills/:id/verify", async (c) => {
+    try {
+      const skill = getSkillStore().verify(c.req.param("id"));
+      return c.json({
+        skill,
+        note: "Verified into library — still SHADOW; not executable",
+      });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "verify failed" }, 400);
+    }
+  });
+
+  app.post("/v1/skills/:id/retire", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    try {
+      const skill = getSkillStore().retire(c.req.param("id"), body.reason);
+      return c.json({ skill });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "retire failed" }, 400);
+    }
+  });
+
+  app.post("/v1/skills/:id/execute", async (c) => {
+    try {
+      getSkillStore().assertNotExecutable(c.req.param("id"));
+      return c.json({ error: "unreachable" }, 500);
+    } catch (e) {
+      return c.json(
+        { error: e instanceof Error ? e.message : "execute blocked", executable: false },
+        403,
+      );
+    }
+  });
+
+  // ——— Phase 9: Personal Business Operator (SHADOW) ———
+
+  app.get("/v1/ops/opportunities", (c) => {
+    const rows = getOpportunityStore().list({
+      status: c.req.query("status") as
+        | "researching"
+        | "qualified"
+        | "drafted"
+        | "awaiting_approval"
+        | "closed"
+        | "retired"
+        | undefined,
+      q: c.req.query("q") || undefined,
+    });
+    return c.json({ opportunities: rows });
+  });
+
+  app.post("/v1/ops/opportunities", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      company?: string;
+      channel?: "upwork" | "fiverr" | "linkedin" | "email" | "web" | "other";
+      summary?: string;
+    };
+    if (!body.title?.trim()) return c.json({ error: "title is required" }, 400);
+    try {
+      const opportunity = getOpportunityStore().create({
+        title: body.title,
+        company: body.company,
+        channel: body.channel,
+        summary: body.summary,
+      });
+      return c.json({ opportunity });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "create failed" }, 400);
+    }
+  });
+
+  app.post("/v1/ops/opportunities/from-facts", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      fact_ids?: string[];
+      title?: string;
+      company?: string;
+      channel?: "upwork" | "fiverr" | "linkedin" | "email" | "web" | "other";
+    };
+    if (!body.fact_ids?.length) return c.json({ error: "fact_ids required" }, 400);
+    try {
+      const opportunity = createOpportunityFromFacts({
+        fact_ids: body.fact_ids,
+        title: body.title,
+        company: body.company,
+        channel: body.channel,
+      });
+      return c.json({ opportunity });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "from-facts failed" }, 400);
+    }
+  });
+
+  app.post("/v1/ops/opportunities/:id/qualify", async (c) => {
+    try {
+      const opp = getOpportunityStore().get(c.req.param("id"));
+      if (!opp) return c.json({ error: "not found" }, 404);
+      const facts = opp.provenance.fact_ids
+        .map((id) => getFactStore().getFact(id))
+        .filter((f): f is NonNullable<typeof f> => Boolean(f));
+      const opportunity = getOpportunityStore().qualify(c.req.param("id"), facts);
+      return c.json({ opportunity });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "qualify failed" }, 400);
+    }
+  });
+
+  app.post("/v1/ops/opportunities/:id/draft", async (c) => {
+    try {
+      const opportunity = getOpportunityStore().draft(c.req.param("id"));
+      return c.json({ opportunity, notice: opportunity.draft?.notice });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "draft failed" }, 400);
+    }
+  });
+
+  app.post("/v1/ops/opportunities/:id/request-approval", async (c) => {
+    try {
+      const opportunity = getOpportunityStore().requestApproval(c.req.param("id"));
+      return c.json({
+        opportunity,
+        note: "Marked awaiting_approval — still no send",
+      });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "request-approval failed" }, 400);
+    }
+  });
+
+  app.post("/v1/ops/opportunities/:id/retire", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { reason?: string };
+    try {
+      const opportunity = getOpportunityStore().retire(c.req.param("id"), body.reason);
+      return c.json({ opportunity });
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "retire failed" }, 400);
+    }
+  });
+
+  for (const action of ["send", "publish", "bid"] as const) {
+    app.post(`/v1/ops/opportunities/:id/${action}`, async (c) => {
+      try {
+        getOpportunityStore().assertSendBlocked(c.req.param("id"));
+      } catch (e) {
+        return c.json(
+          {
+            error: e instanceof Error ? e.message : `${action} blocked`,
+            action,
+            blocked: true,
+          },
+          403,
+        );
+      }
+    });
+  }
+
+  // ——— Phase 10: Model router ———
+
+  app.get("/v1/models/roles", (c) => {
+    return c.json({ roles: getModelRouter().listRoles() });
+  });
+
+  app.get("/v1/models/health", async (c) => {
+    const health = await getModelRouter().health();
+    return c.json({ health });
+  });
+
+  app.post("/v1/models/complete", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      role?: "reason" | "code" | "vision" | "extract" | "classify";
+      prompt?: string;
+      system?: string;
+    };
+    if (!body.prompt?.trim()) return c.json({ error: "prompt is required" }, 400);
+    if (!body.role) return c.json({ error: "role is required" }, 400);
+    try {
+      const result = await getModelRouter().complete({
+        role: body.role,
+        prompt: body.prompt,
+        system: body.system,
+      });
+      return c.json(result);
+    } catch (e) {
+      return c.json({ error: e instanceof Error ? e.message : "complete failed" }, 400);
+    }
+  });
+
   app.get("/v1/portfolio", async (c) => {
     const { engine, adapterName } = getJarvisRuntime();
     const snap = await buildOsSnapshot();
@@ -474,7 +827,15 @@ export function createApp() {
         goal_id: body.goal_id,
         simulate_only: body.simulate_only === true,
       });
-      return c.json(result);
+      let memory = null;
+      if (!result.simulated && result.facts.length > 0) {
+        memory = ingestBrowserResearch({
+          facts: result.facts,
+          goal_id: body.goal_id,
+          url: result.url,
+        });
+      }
+      return c.json({ ...result, memory });
     } catch (e) {
       return c.json({ error: e instanceof Error ? e.message : "shadow-research failed" }, 400);
     }

@@ -17,7 +17,7 @@ describe("Phase A JARVIS API", () => {
     const body = await res.json();
     expect(body.adapter).toBe("mock");
     expect(body.mode_default).toBe("shadow");
-    expect(body.phase).toBe("6");
+    expect(body.phase).toBe("10");
   });
 
   it("POST shadow-loop returns shadow mode and evidence", async () => {
@@ -556,6 +556,180 @@ describe("Phase F world model", () => {
     const body = await res.json();
     expect(body.entities.some((e: { type: string }) => e.type === "goal")).toBe(true);
     expect(body.entities.some((e: { type: string }) => e.type === "specialist")).toBe(true);
+  });
+});
+
+describe("Phase 7 durable WM facts", () => {
+  beforeEach(() => {
+    resetJarvisRuntime({ adapter: "mock" });
+  });
+
+  it("upserts, retrieves, invalidates, and blocks secrets", async () => {
+    const app = createApp();
+    const created = await app.request("/v1/wm/facts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        claim: "Saudi SaaS market is growing",
+        kind: "observation",
+        source: "human",
+        goal_id: "goal_wm",
+        confidence: 0.6,
+      }),
+    });
+    expect(created.status).toBe(200);
+    const fact = (await created.json()).fact;
+    expect(fact.id).toBeTruthy();
+
+    const listed = await app.request("/v1/wm/facts?goal_id=goal_wm");
+    expect(listed.status).toBe(200);
+    const listBody = await listed.json();
+    expect(listBody.facts.length).toBeGreaterThanOrEqual(1);
+    expect(listBody.counts.active).toBeGreaterThanOrEqual(1);
+
+    const inv = await app.request(`/v1/wm/facts/${fact.id}/invalidate`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "outdated" }),
+    });
+    expect(inv.status).toBe(200);
+    expect((await inv.json()).fact.status).toBe("invalidated");
+
+    const secret = await app.request("/v1/wm/facts", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        claim: "password=supersecretvalue123456",
+        kind: "observation",
+        source: "human",
+      }),
+    });
+    expect(secret.status).toBe(400);
+
+    const now = await app.request("/v1/wm/now");
+    expect(now.status).toBe(200);
+    expect((await now.json()).memory).toBeTruthy();
+  });
+
+  it("ingests browser research into memory", async () => {
+    const app = createApp();
+    const research = await app.request("/v1/browser/shadow-research", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ url: "https://example.com/", goal_id: "goal_br" }),
+    });
+    expect(research.status).toBe(200);
+    const body = await research.json();
+    expect(body.memory?.stored?.length).toBeGreaterThan(0);
+
+    const facts = await app.request("/v1/wm/facts?goal_id=goal_br");
+    const fBody = await facts.json();
+    expect(fBody.facts.length).toBeGreaterThan(0);
+    expect(fBody.facts.every((f: { kind: string }) => f.kind !== "conclusion")).toBe(true);
+  });
+});
+
+describe("Phase 8 skill library", () => {
+  beforeEach(() => {
+    resetJarvisRuntime({ adapter: "mock" });
+  });
+
+  it("ingests, practices, verifies, blocks execute", async () => {
+    const app = createApp();
+    const ingest = await app.request("/v1/skills/ingest", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Shadow research skim",
+        text: [
+          "Shadow research skim",
+          "1. Open allowlisted URL",
+          "2. Extract page title",
+          "3. Store observation fact",
+          "Never claim visit if fetch failed",
+        ].join("\n"),
+      }),
+    });
+    expect(ingest.status).toBe(200);
+    const skill = (await ingest.json()).skill;
+    expect(skill.status).toBe("candidate");
+    expect(skill.trust_tier).toBe("SHADOW");
+
+    const badVerify = await app.request(`/v1/skills/${skill.id}/verify`, { method: "POST" });
+    expect(badVerify.status).toBe(400);
+
+    const practice = await app.request(`/v1/skills/${skill.id}/practice`, { method: "POST" });
+    expect(practice.status).toBe(200);
+    expect((await practice.json()).skill.practice.ok).toBe(true);
+
+    const verify = await app.request(`/v1/skills/${skill.id}/verify`, { method: "POST" });
+    expect(verify.status).toBe(200);
+    const verified = (await verify.json()).skill;
+    expect(verified.status).toBe("verified");
+    expect(verified.trust_tier).toBe("SHADOW");
+
+    const exec = await app.request(`/v1/skills/${skill.id}/execute`, { method: "POST" });
+    expect(exec.status).toBe(403);
+
+    const list = await app.request("/v1/skills?status=verified");
+    expect((await list.json()).skills.some((s: { id: string }) => s.id === skill.id)).toBe(true);
+  });
+});
+
+describe("Phase 9 ops opportunities", () => {
+  beforeEach(() => {
+    resetJarvisRuntime({ adapter: "mock" });
+  });
+
+  it("creates draft and blocks send", async () => {
+    const app = createApp();
+    const created = await app.request("/v1/ops/opportunities", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "Laravel SaaS for Jeddah clinic",
+        company: "ClinicCo",
+        channel: "upwork",
+        summary: "Need Laravel billing SaaS urgently",
+      }),
+    });
+    expect(created.status).toBe(200);
+    const id = (await created.json()).opportunity.id;
+
+    const draft = await app.request(`/v1/ops/opportunities/${id}/draft`, { method: "POST" });
+    expect(draft.status).toBe(200);
+    const body = await draft.json();
+    expect(body.opportunity.draft.simulated).toBe(true);
+
+    const send = await app.request(`/v1/ops/opportunities/${id}/send`, { method: "POST" });
+    expect(send.status).toBe(403);
+  });
+});
+
+describe("Phase 10 model router", () => {
+  beforeEach(() => {
+    resetJarvisRuntime({ adapter: "mock" });
+  });
+
+  it("lists roles and completes via mock fallback", async () => {
+    const app = createApp();
+    const roles = await app.request("/v1/models/roles");
+    expect(roles.status).toBe(200);
+    expect((await roles.json()).roles.length).toBeGreaterThan(0);
+
+    const complete = await app.request("/v1/models/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        role: "classify",
+        prompt: "Classify: Laravel freelance lead in Riyadh",
+      }),
+    });
+    expect(complete.status).toBe(200);
+    const body = await complete.json();
+    expect(body.ok).toBe(true);
+    expect(String(body.notice)).toMatch(/advisory|not a source of truth/i);
+    expect(body.provenance.role).toBe("classify");
   });
 });
 

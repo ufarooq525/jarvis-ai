@@ -21,7 +21,8 @@ Performs real actions:
 3. `live-status` + evidence chain
 4. Computer **Live open** Notepad (type `OPEN`) — launches the app
 5. Kill switch blocks Live open; then clears
-6. Click/act remains 403
+6. Browser **SHADOW research** against `https://example.com/` (allowlisted GET + facts)
+7. Click/act remains 403 (computer + browser)
 
 ### Prerequisites
 

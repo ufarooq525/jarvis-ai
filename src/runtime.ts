@@ -6,6 +6,13 @@ import { MockOsRuntimeAdapter } from "./adapters/mock/mock-os-runtime-adapter.js
 import { UmerOsRuntimeAdapter } from "./adapters/umer-os/umer-os-runtime-adapter.js";
 import { bindEscalationStore, resetEscalationStore } from "./escalation/store.js";
 import { PersistedEscalationStore } from "./escalation/persisted-store.js";
+import { bindFactStore, resetFactStore } from "./world-model/fact-store.js";
+import { PersistedFactStore } from "./world-model/persisted-fact-store.js";
+import { bindSkillStore, resetSkillStore } from "./skills/skill-store.js";
+import { PersistedSkillStore } from "./skills/persisted-skill-store.js";
+import { bindOpportunityStore, resetOpportunityStore } from "./ops/opportunity-store.js";
+import { PersistedOpportunityStore } from "./ops/persisted-opportunity-store.js";
+import { resetModelRouter } from "./model-router/router.js";
 import { resetKillSwitchState } from "./trust/kill-switch-control.js";
 import { resetQuarantine } from "./world-model/quarantine.js";
 import { openJarvisDb, type JarvisDb, resolveJarvisDbPath } from "./db/client.js";
@@ -54,6 +61,9 @@ function buildRuntime(
   const db = openJarvisDb(dbPath);
   bindConnectionDb(db, dbPath);
   bindEscalationStore(new PersistedEscalationStore(db));
+  bindFactStore(new PersistedFactStore(db));
+  bindSkillStore(new PersistedSkillStore(db));
+  bindOpportunityStore(new PersistedOpportunityStore(db));
   const resolved = kind ?? getActiveAdapterKind();
   const adapter = createAdapter(resolved);
   const conn = getConnectionConfig();
@@ -116,6 +126,10 @@ export function setJarvisConnection(opts: {
 export function resetJarvisRuntime(opts?: { dbPath?: string; adapter?: AdapterKind }): void {
   // Clear durable escalation rows while DB is still open.
   resetEscalationStore();
+  resetFactStore();
+  resetSkillStore();
+  resetOpportunityStore();
+  resetModelRouter();
   try {
     singleton?.db.close();
   } catch {
