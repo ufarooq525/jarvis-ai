@@ -182,6 +182,7 @@ export function createApp() {
       simulated_notice: result.simulated_notice,
       verification: result.verification,
       normalized: result.normalized,
+      decisions: result.decisions,
     });
   });
 

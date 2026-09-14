@@ -104,6 +104,20 @@ export function verifyShadowLoop(input: {
       : "Evidence key result not met",
   });
 
+  for (const kr of input.goal.key_results) {
+    if (kr.metric_ref === "evidence.chain.length") continue;
+    const current = typeof kr.current === "number" ? kr.current : Number(kr.current ?? 0);
+    const target = typeof kr.target === "number" ? kr.target : Number(kr.target);
+    const ok = Number.isFinite(current) && Number.isFinite(target) && current >= target;
+    checks.push({
+      id: `kr_outcome:${kr.metric_ref}`,
+      ok,
+      detail: ok
+        ? `Outcome KR ${kr.metric_ref} met (${current}/${target})`
+        : `Outcome KR ${kr.metric_ref} unmet (${current}/${target}) — lifecycle is not outcome fulfillment`,
+    });
+  }
+
   const passed = checks.every((c) => c.ok);
   return {
     passed,

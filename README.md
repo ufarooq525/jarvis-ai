@@ -44,6 +44,7 @@ UI talks **only** to `:3020`. Never to Umer control-api `:4000`.
 | [docs/implementation-phases.md](./docs/implementation-phases.md) | FE+BE phased plan + verify gates |
 | [docs/project-context.md](./docs/project-context.md) | Locked decisions + adapter rule |
 | [docs/jarvis-integration-architecture-report.md](./docs/jarvis-integration-architecture-report.md) | Integration report |
+| [docs/JARVIS_ARCHITECTURE_TRUTH.md](./docs/JARVIS_ARCHITECTURE_TRUTH.md) | Architecture truth map (implementation vs north star) |
 | [notes.md](./notes.md) | Checklist |
 
 ## Explicit non-goals (now)

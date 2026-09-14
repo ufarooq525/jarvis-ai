@@ -40,7 +40,7 @@ export function mapTasksToSteps(tasks: TaskRow[]): Step[] {
 /** Map API goal mode/status → Board column. Live mode must survive refresh. */
 export function defaultStageFromApi(status: string, mode: string): Stage {
   if (status === "cancelled") return "discarded";
-  if (status === "failed") return "failed";
+  if (status === "failed" || status === "blocked") return "failed";
   if (status === "done" || status === "succeeded") return "done";
   if (mode === "live") return "live";
   // Active/incomplete Shadow plans wait for human review

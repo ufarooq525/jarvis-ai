@@ -27,6 +27,13 @@ import {
   withTimeout,
 } from "./execution-policy.js";
 import { quarantineAdapterText } from "../world-model/quarantine.js";
+import { BrowserRuntime } from "../browser/runtime.js";
+import { CapabilityCatalog } from "../capabilities/catalog.js";
+import { DecisionEngine } from "../decision/engine.js";
+import type { OperatorContext, OperatorDecision } from "../decision/types.js";
+import { Orchestrator } from "../orchestrator/orchestrator.js";
+import { countOpportunitiesForGoal } from "../ops/qualify-facts.js";
+import { getFactStore } from "../world-model/fact-store.js";
 
 export interface PartialCompletion {
   done: number;
@@ -48,6 +55,7 @@ export interface ShadowLoopResult {
   verification: VerificationResult;
   normalized: NormalizedOutcome;
   partial?: PartialCompletion;
+  decisions?: OperatorDecision[];
 }
 
 export interface CancelGoalResult {
@@ -63,6 +71,7 @@ export interface GoalEngineDeps {
   evidence?: EvidenceChain;
   journal?: DecisionJournal;
   execution?: Partial<ExecutionPolicy>;
+  browser?: BrowserRuntime;
 }
 
 /**
@@ -77,6 +86,9 @@ export class GoalEngine {
   /** Exposed for tests / advanced callers; still adapter-bound only. */
   readonly bridge: DispatchBridge;
   readonly execution: ExecutionPolicy;
+  readonly capabilities: CapabilityCatalog;
+  readonly decisionEngine: DecisionEngine;
+  readonly orchestrator: Orchestrator;
   private replanGeneration = new Map<string, number>();
 
   constructor(
@@ -88,6 +100,18 @@ export class GoalEngine {
     this.journal = deps.journal ?? new DecisionJournal();
     this.bridge = new DispatchBridge(this.store, adapter, this.tools, this.evidence);
     this.execution = { ...DEFAULT_SHADOW_EXECUTION, ...deps.execution };
+    this.capabilities = CapabilityCatalog.fromRegistry(this.tools);
+    this.decisionEngine = new DecisionEngine();
+    const browser = deps.browser ?? new BrowserRuntime({ evidence: this.evidence });
+    this.orchestrator = new Orchestrator({
+      store: this.store,
+      evidence: this.evidence,
+      tools: this.tools,
+      bridge: this.bridge,
+      browser,
+      execution: this.execution,
+      browser_fetch: this.execution.browser_fetch,
+    });
   }
 
   /** §16 + Phase-1 harden: normalize → inspect → decompose → shadow dispatch → verify → KR. */
@@ -208,7 +232,11 @@ export class GoalEngine {
       correlation: { decision_id },
     });
 
-    const { runs, partial } = await this.dispatchTasksWithPolicy(goal, tasks, decision_id);
+    const { runs, partial, decisions } = await this.runOperatorLoop(
+      goal,
+      decision_id,
+      normalized,
+    );
     return this.finalizeShadowCycle({
       goal,
       tasks,
@@ -217,6 +245,7 @@ export class GoalEngine {
       decision_id,
       normalized,
       decisionLabel: "shadow_loop",
+      decisions,
     });
   }
 
@@ -267,7 +296,15 @@ export class GoalEngine {
       this.store.saveTask(task);
     }
 
-    const { runs: _retried } = await this.dispatchTasksWithPolicy(goal, toRetry, decision_id);
+    const { runs: _retried, decisions } = await this.runOperatorLoop(
+      goal,
+      decision_id,
+      normalizeOutcome({
+        outcome: goal.outcome,
+        title: goal.title,
+        domain: goal.domain,
+      }),
+    );
     void _retried;
     const tasksNow = [...this.store.tasks.values()].filter((t) => t.goal_id === goal.id);
     const normalized = normalizeOutcome({
@@ -284,6 +321,7 @@ export class GoalEngine {
       decision_id,
       normalized,
       decisionLabel: "replan",
+      decisions,
     });
   }
 
@@ -612,6 +650,86 @@ export class GoalEngine {
     };
   }
 
+  /**
+   * Canonical operator loop: Decision → Policy (inside orchestrator/bridge) → runtime.
+   */
+  private async runOperatorLoop(
+    goal: Goal,
+    decision_id: string,
+    normalized: NormalizedOutcome,
+  ): Promise<{ runs: AgentRun[]; partial: PartialCompletion; decisions: OperatorDecision[] }> {
+    const decisions: OperatorDecision[] = [];
+    const maxSteps = 10;
+
+    for (let step = 0; step < maxSteps; step++) {
+      const fresh = this.store.goals.get(goal.id);
+      if (fresh?.status === "cancelled") break;
+
+      const ctx = this.buildOperatorContext(goal, normalized, decisions);
+      const next = this.decisionEngine.decideNext(ctx);
+      decisions.push(next);
+
+      this.evidence.append({
+        goal_id: goal.id,
+        kind: "decision",
+        principal_id: JARVIS_PRINCIPAL,
+        payload_summary: `operator ${next.decision}: ${next.reason}${
+          next.selected_capability ? `; capability=${next.selected_capability}` : ""
+        }`,
+        correlation: {
+          decision_id,
+          tool_id: next.selected_capability,
+          jarvis_task_id: next.task_id,
+        },
+      });
+
+      if (next.decision !== "execute") break;
+
+      const task = next.task_id ? this.store.tasks.get(next.task_id) : undefined;
+      await this.orchestrator.execute({
+        goal,
+        task,
+        decision: next,
+        decision_id,
+        normalized,
+      });
+    }
+
+    const tasksNow = [...this.store.tasks.values()].filter((t) => t.goal_id === goal.id);
+    const runs = [...this.store.runs.values()].filter((r) => r.goal_id === goal.id);
+    return { runs, partial: summarizeTasks(tasksNow), decisions };
+  }
+
+  private buildOperatorContext(
+    goal: Goal,
+    normalized: NormalizedOutcome,
+    previous: OperatorDecision[],
+  ): OperatorContext {
+    const tasks = [...this.store.tasks.values()].filter((t) => t.goal_id === goal.id);
+    const runs = [...this.store.runs.values()].filter((r) => r.goal_id === goal.id);
+    const facts = getFactStore().listFacts({ goal_id: goal.id });
+    const opportunity_count = countOpportunitiesForGoal(goal.id);
+    const researchKr = goal.key_results.find((k) => k.metric_ref === "research.opportunity_count");
+    if (researchKr) {
+      researchKr.current = opportunity_count;
+      researchKr.last_measured_at = nowIso();
+    }
+    return {
+      goal,
+      objectives: [...this.store.objectives.values()].filter((o) => o.goal_id === goal.id),
+      tasks,
+      runs,
+      evidence: this.evidence.chainForGoal(goal.id),
+      facts,
+      opportunity_count,
+      capabilities: this.capabilities.list(),
+      previous_decisions: previous,
+      journal: this.journal.byGoal(goal.id),
+      normalized,
+      attempted_capability_ids: runs.flatMap((r) => r.tool_invocations),
+    };
+  }
+
   /** Dispatch tasks with per-task timeout + retry; continue on failure for partial completion. */
   private async dispatchTasksWithPolicy(
     goal: Goal,
@@ -772,8 +890,9 @@ export class GoalEngine {
     decision_id: string;
     normalized: NormalizedOutcome;
     decisionLabel: "shadow_loop" | "replan";
+    decisions?: OperatorDecision[];
   }): ShadowLoopResult {
-    const { goal, tasks, runs, partial, decision_id, normalized, decisionLabel } = input;
+    const { goal, tasks, runs, partial, decision_id, normalized, decisionLabel, decisions } = input;
 
     const kr = goal.key_results.find((k) => k.metric_ref === "evidence.chain.length")!;
     kr.current = this.evidence.chainForGoal(goal.id).length;
@@ -781,7 +900,7 @@ export class GoalEngine {
 
     const researchKr = goal.key_results.find((k) => k.metric_ref === "research.opportunity_count");
     if (researchKr) {
-      researchKr.current = 0;
+      researchKr.current = countOpportunitiesForGoal(goal.id);
       researchKr.last_measured_at = nowIso();
     }
 
@@ -868,7 +987,10 @@ export class GoalEngine {
         "Mock/Umer shadow startRun does not write to Control API",
         "Evidence chain length is a valid KR for Shadow plan completeness",
         ...(normalized.plan_kind === "research"
-          ? ["Research opportunity count KR stays at 0 until Live research exists"]
+          ? [
+              "Research opportunity count is measured from qualifying observations only",
+              "Allowlisted/simulated research is not fabricated into opportunities",
+            ]
           : []),
       ],
       confidence: passed ? 0.85 : 0.4,
@@ -900,6 +1022,7 @@ export class GoalEngine {
       verification: finalVerification,
       normalized,
       partial,
+      decisions,
     };
   }
 }

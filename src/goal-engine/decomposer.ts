@@ -47,29 +47,38 @@ export function decomposeGoal(
     idempotency_key: `${goal.id}:inspect`,
   };
 
-  const dispatchTitle =
-    plan_kind === "research"
-      ? "Propose OS research/agent run (shadow)"
-      : "Propose OS agent run (shadow)";
+  store.saveTask(inspect);
 
-  const dispatchIntent =
-    plan_kind === "research"
-      ? `Shadow research plan for: ${goal.outcome}${constraints}`
-      : `Advance outcome: ${goal.outcome}`;
+  if (plan_kind === "research") {
+    const research: Task = {
+      id: newId("task"),
+      parent_id: obj.id,
+      goal_id: goal.id,
+      title: "Observe allowlisted sources (shadow research)",
+      intent: `Observe sources for: ${goal.outcome}${constraints}`,
+      status: "ready",
+      assignee_kind: "jarvis_internal",
+      tool_ids: ["browser.research"],
+      idempotency_key: `${goal.id}:browser.research`,
+    };
+    store.saveTask(research);
+    goal.updated_at = nowIso();
+    store.saveGoal(goal);
+    return { objectives: [obj], tasks: [inspect, research] };
+  }
 
   const dispatch: Task = {
     id: newId("task"),
     parent_id: obj.id,
     goal_id: goal.id,
-    title: dispatchTitle,
-    intent: dispatchIntent,
+    title: "Propose OS agent run (shadow)",
+    intent: `Advance outcome: ${goal.outcome}`,
     status: "ready",
     assignee_kind: "os_agent",
     tool_ids: ["os.runtime.start_run"],
     idempotency_key: `${goal.id}:start_run`,
   };
 
-  store.saveTask(inspect);
   store.saveTask(dispatch);
 
   goal.updated_at = nowIso();

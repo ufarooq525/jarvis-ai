@@ -27,7 +27,7 @@ export function ingestBrowserResearch(input: {
 
   for (const f of input.facts) {
     const q = quarantineAdapterText({
-      source: "adapter.browser.research",
+      source: "browser.research",
       text: f.claim,
       goal_id: input.goal_id,
     });

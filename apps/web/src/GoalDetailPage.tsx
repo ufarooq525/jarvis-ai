@@ -26,6 +26,12 @@ function statusHuman(goal: GoalDetailResponse["goal"]): { label: string; note: s
   if (goal.status === "failed") {
     return { label: "Failed", note: "Something stopped. See evidence and replan if needed." };
   }
+  if (goal.status === "blocked") {
+    return {
+      label: "Blocked",
+      note: "The outcome was not achieved. Evidence shows what was tried — this is not success.",
+    };
+  }
   if (goal.status === "cancelled") {
     return { label: "Cancelled", note: "This goal was cancelled." };
   }

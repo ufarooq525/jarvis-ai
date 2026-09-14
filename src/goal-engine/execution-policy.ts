@@ -5,11 +5,17 @@ export interface ExecutionPolicy {
   timeout_ms: number;
   /** Total attempts including the first. */
   max_attempts: number;
+  /**
+   * Shadow browser research: when false, simulate_only (no network).
+   * Defaults off under Vitest; on for the API process so observations can be real.
+   */
+  browser_fetch: boolean;
 }
 
 export const DEFAULT_SHADOW_EXECUTION: ExecutionPolicy = {
   timeout_ms: 8_000,
   max_attempts: 2,
+  browser_fetch: !process.env.VITEST,
 };
 
 export class TimeoutError extends Error {

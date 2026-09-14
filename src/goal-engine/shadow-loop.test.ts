@@ -1,12 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeEach } from "vitest";
 import { GoalEngine } from "./engine.js";
 import { MockOsRuntimeAdapter } from "../adapters/mock/mock-os-runtime-adapter.js";
 import { engageKillSwitch, clearKillSwitch } from "../kill-switch.js";
 import { normalizeOutcome } from "./normalize.js";
 import { canTransitionGoal, canTransitionTask, assertGoalTransition } from "./transitions.js";
 import { SHADOW_SIMULATED_NOTICE, verifyShadowLoop } from "./verifier.js";
+import { resetFactStore } from "../world-model/fact-store.js";
+import { resetOpportunityStore } from "../ops/opportunity-store.js";
 
 describe("Goal Engine Shadow Loop (§16)", () => {
+  beforeEach(() => {
+    resetFactStore();
+    resetOpportunityStore();
+  });
   it("completes shadow loop with evidence, manifests, and delegation — mock only", async () => {
     const adapter = new MockOsRuntimeAdapter();
     const engine = new GoalEngine(adapter);
@@ -116,6 +122,10 @@ describe("Goal Engine Shadow Loop (§16)", () => {
 });
 
 describe("Phase 1 — outcome normalize + lifecycle acceptance", () => {
+  beforeEach(() => {
+    resetFactStore();
+    resetOpportunityStore();
+  });
   it("normalizes the Saudi Laravel SaaS research outcome", () => {
     const n = normalizeOutcome({
       outcome: "Find 10 Laravel SaaS opportunities in Saudi Arabia.",
@@ -136,7 +146,7 @@ describe("Phase 1 — outcome normalize + lifecycle acceptance", () => {
     expect(n.key_results.find((kr) => kr.metric_ref === "research.opportunity_count")?.target).toBe(10);
   });
 
-  it("runs full Shadow lifecycle for Saudi SaaS outcome without external actions", async () => {
+  it("runs operator loop for Saudi SaaS outcome without fabricating opportunities", async () => {
     const adapter = new MockOsRuntimeAdapter();
     const engine = new GoalEngine(adapter);
 
@@ -144,11 +154,8 @@ describe("Phase 1 — outcome normalize + lifecycle acceptance", () => {
       outcome: "Find 10 Laravel SaaS opportunities in Saudi Arabia.",
     });
 
-    expect(result.decision_outcome).toBe("act");
     expect(result.simulated).toBe(true);
     expect(result.simulated_notice).toBe(SHADOW_SIMULATED_NOTICE);
-    expect(result.verification.passed).toBe(true);
-    expect(result.goal.status).toBe("done");
     expect(result.goal.mode).toBe("shadow");
     expect(result.goal.domain).toBe("sales");
     expect(result.normalized.plan_kind).toBe("research");
@@ -162,29 +169,33 @@ describe("Phase 1 — outcome normalize + lifecycle acceptance", () => {
     expect(objectives.length).toBeGreaterThanOrEqual(1);
     expect(objectives[0]!.title).toMatch(/Research/i);
     expect(objectives[0]!.success_criteria).toContain("10");
-    expect(tasks.length).toBeGreaterThanOrEqual(2);
-    expect(tasks.every((t) => t.status === "done")).toBe(true);
+    expect(tasks.some((t) => t.tool_ids.includes("browser.research"))).toBe(true);
+    expect(tasks.some((t) => t.tool_ids.includes("os.runtime.start_run"))).toBe(false);
 
-    expect(result.runs.length).toBeGreaterThanOrEqual(2);
+    expect(result.runs.some((r) => r.tool_invocations.includes("browser.research"))).toBe(true);
     expect(result.runs.every((r) => r.mode === "shadow")).toBe(true);
-    expect(result.runs.every((r) => r.status === "simulated" || r.status === "succeeded")).toBe(
-      true,
-    );
 
     const chain = JSON.parse(result.evidence_json) as Array<{ kind: string; payload_summary: string }>;
     expect(chain.some((n) => n.kind === "stimulus")).toBe(true);
     expect(chain.some((n) => n.kind === "decision")).toBe(true);
     expect(chain.some((n) => n.kind === "policy_verdict")).toBe(true);
-    expect(chain.some((n) => n.kind === "simulation" || n.kind === "tool_invocation")).toBe(true);
-    expect(chain.some((n) => n.payload_summary.includes("verification: passed"))).toBe(true);
+    expect(chain.some((n) => n.payload_summary.includes("observation:"))).toBe(true);
+    expect(chain.some((n) => n.payload_summary.includes("browser.research"))).toBe(true);
     expect(chain.some((n) => n.payload_summary.includes(SHADOW_SIMULATED_NOTICE))).toBe(true);
 
-    // Research count KR is planned, not fabricated as completed in Shadow
     const researchKr = result.goal.key_results.find(
       (kr) => kr.metric_ref === "research.opportunity_count",
     );
     expect(researchKr?.target).toBe(10);
     expect(researchKr?.current).toBe(0);
+
+    expect(result.verification.passed).toBe(false);
+    expect(result.verification.checks.some((c) => c.id.startsWith("kr_outcome:") && !c.ok)).toBe(
+      true,
+    );
+    expect(result.goal.status).toBe("blocked");
+    expect(result.decision_outcome).toBe("escalate");
+    expect(result.decisions?.some((d) => d.decision === "block")).toBe(true);
 
     for (const run of result.runs) {
       if (run.os_run_id) {
@@ -215,6 +226,10 @@ describe("lifecycle transitions", () => {
 });
 
 describe("Phase 1 — failure, retry, timeout, cancel, replan", () => {
+  beforeEach(() => {
+    resetFactStore();
+    resetOpportunityStore();
+  });
   it("retries adapter failure then succeeds within max_attempts", async () => {
     const adapter = new MockOsRuntimeAdapter();
     adapter.failTools = ["os.runtime.start_run"];

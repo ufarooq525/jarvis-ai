@@ -2,34 +2,44 @@
 
 ## Product stance (2026-09-14)
 
-JARVIS is a **control-plane operator**, not a collection of feature demos.
-Phases 1–12 shipped scaffolding; many planes are **PARTIAL / SHADOW-only**.
-Do **not** treat “page exists” as “product complete.”
+JARVIS is a **personal operator / control plane**, not a collection of feature demos.
+Architectural truth: `docs/JARVIS_ARCHITECTURE_TRUTH.md`.
 
-## Reconciliation (in progress)
+## Operator loop (current)
+
+Canonical path inside Goal Engine:
+
+```text
+outcome → goal → decision → policy → orchestrator → runtime → observation → evidence → verification → done | blocked
+```
+
+- Research outcomes use `browser.research` + memory + ops qualify — **not** an OS noop pretending to be research.
+- Outcome KRs (`research.opportunity_count`) are measured from qualifying observations only.
+- Unmet KRs **block** the goal. Shadow lifecycle is not outcome fulfillment.
+- “Find 10 Laravel SaaS opportunities in Saudi Arabia” still does **not** yield 10 opportunities from allowlisted/simulated sources. That is a real block, not a fake `done`.
+
+## Reconciliation
 
 - [x] Audit of pages / APIs / runtimes
-- [x] Command Center (`/` Now) — operator narrative from real data
-- [x] Goal Detail as mission control (honest Shadow vs Live)
-- [x] Attention actionable (escalations + Shadow review)
-- [x] Nav IA: Command / Work / Knowledge / Runtimes / System
-- [ ] Full Live E2E research scenario still **incomplete** (see gaps)
+- [x] Command Center + Goal Detail honesty
+- [x] Architecture truth map
+- [x] Thin Decision Engine + Orchestrator over existing runtimes
+- [ ] Full Live E2E through Umer AI OS with outcome payload still **incomplete**
 
 ## What is genuinely working
 
-- Shadow Loop: outcome → goal → tasks → policy → simulated runs → evidence → journal
-- Live promote: type `LIVE` → OS plan via `OsRuntimeAdapter` (generic plan body)
-- Computer Live open (type `OPEN`), Browser allowlisted GET + WM facts
+- Shadow operator loop: inspect → (OS start_run **or** browser research) → observations → evidence → verify outcome KRs
+- Live promote: type `LIVE` → OS plan via `OsRuntimeAdapter` (generic `{ approver }` body — plan ≠ outcome)
+- Computer Live open (`OPEN`), Browser allowlisted GET
 - Approvals store, kill switch, Settings connection checklist
 
-## What is NOT complete (do not claim otherwise)
+## What is NOT complete
 
-- “Find 10 Laravel SaaS opportunities…” does **not** produce 10 opportunities
-- Shadow verification can pass with `research.opportunity_count = 0`
+- Live plan body still does not carry the research outcome
 - Ops send / Skills execute / Browser act / Computer click → blocked
-- Mission/Portfolio is aggregation UI, not a separate engine
-- Escalation approve ≠ Live OS dispatch
+- Memory does not yet change later decisions beyond this loop’s KR
 - Model router not in Goal Engine path
+- Escalation approve ≠ Live OS dispatch
 
 ## Verify
 
@@ -38,5 +48,3 @@ pnpm verify
 pnpm verify:all
 pnpm verify:live
 ```
-
-See `docs/COMMAND_CENTER_RECONCILIATION.md` for the full report.
