@@ -131,3 +131,169 @@ export function verifyShadowLoop(input: {
     simulated_notice: SHADOW_SIMULATED_NOTICE,
   };
 }
+
+export function verifyLiveRun(input: {
+  os_status: string | undefined;
+  timed_out: boolean;
+}): VerificationResult {
+  const checks: VerificationResult["checks"] = [];
+  const terminalSuccess =
+    input.os_status === "succeeded" ||
+    input.os_status === "simulated" ||
+    input.os_status === "noop_shadow";
+  const terminalFail = input.os_status === "failed" || input.os_status === "cancelled";
+
+  checks.push({
+    id: "not_plan_accept_only",
+    ok: !input.timed_out && Boolean(input.os_status) && input.os_status !== "proposed",
+    detail: input.timed_out
+      ? "Poll timed out — plan accepted is not run completion"
+      : `OS status=${input.os_status ?? "missing"}`,
+  });
+  checks.push({
+    id: "terminal_success",
+    ok: terminalSuccess && !input.timed_out,
+    detail: terminalSuccess
+      ? `Run reached terminal success (${input.os_status})`
+      : terminalFail
+        ? `Run terminal failure (${input.os_status})`
+        : "Run not in a terminal success state",
+  });
+
+  const passed = checks.every((c) => c.ok);
+  return {
+    passed,
+    summary: passed
+      ? `Live run completed (${input.os_status}) — this is run completion, not a business-outcome KR`
+      : `Live outcome not verified: ${checks
+          .filter((c) => !c.ok)
+          .map((c) => c.id)
+          .join(", ")}`,
+    checks,
+    simulated_notice: SHADOW_SIMULATED_NOTICE,
+  };
+}
+
+/**
+ * Computer open → type_text: done only if window/process (Live) or simulated-no-keys (Shadow)
+ * verification passed. Never treat dispatch confirmation as fulfillment.
+ */
+export function verifyComputerTypeLoop(input: {
+  goal: Goal;
+  tasks: Task[];
+  runs: AgentRun[];
+  evidence: EvidenceNode[];
+  mode: "shadow" | "live";
+  keystrokes_sent: boolean;
+  open?: {
+    ok?: boolean;
+    pid?: number;
+    target_id?: string;
+  };
+  typed?: {
+    ok?: boolean;
+    pid?: number;
+    hwnd?: number;
+    intended_text?: string;
+    readback?: string;
+    text_readback_feasible?: boolean;
+    keystrokes_sent?: boolean;
+    verification_passed?: boolean;
+    verification_summary?: string;
+  };
+}): VerificationResult {
+  const checks: VerificationResult["checks"] = [];
+  const hasOpen = input.tasks.some((t) => t.tool_ids.includes("computer.open_app"));
+  const hasType = input.tasks.some((t) => t.tool_ids.includes("computer.type_text"));
+  const hasOsDispatch = input.tasks.some((t) => t.tool_ids.includes("os.runtime.start_run"));
+
+  checks.push({
+    id: "computer_template",
+    ok: hasOpen && hasType && !hasOsDispatch,
+    detail: hasOsDispatch
+      ? "Wrong plan shape — os.runtime.start_run is not this computer slice"
+      : hasOpen && hasType
+        ? "Two-step computer.open_app → computer.type_text"
+        : "Missing computer.open_app and/or computer.type_text",
+  });
+
+  const openDone = input.tasks
+    .filter((t) => t.tool_ids.includes("computer.open_app"))
+    .every((t) => t.status === "done");
+  const typeTask = input.tasks.find((t) => t.tool_ids.includes("computer.type_text"));
+  const typeDone = typeTask?.status === "done";
+
+  checks.push({
+    id: "open_app",
+    ok: openDone && input.open?.ok !== false,
+    detail: openDone
+      ? `Opened ${input.open?.target_id ?? "target"}${input.mode === "live" && input.open?.pid ? ` pid=${input.open.pid}` : ""}`
+      : "Open step not verified",
+  });
+
+  checks.push({
+    id: "type_text",
+    ok: Boolean(typeDone && input.typed?.verification_passed),
+    detail: input.typed?.verification_summary
+      ?? (typeDone ? "Type task done without a verification record" : "Type step not verified"),
+  });
+
+  if (input.mode === "shadow") {
+    checks.push({
+      id: "no_keystrokes_sent",
+      ok: !input.keystrokes_sent && input.typed?.keystrokes_sent !== true,
+      detail: input.keystrokes_sent
+        ? "Shadow sent real keystrokes — fail closed"
+        : "Shadow sent no keystrokes",
+    });
+  } else {
+    checks.push({
+      id: "process_window",
+      ok: Boolean(input.typed?.pid && input.typed.hwnd),
+      detail:
+        input.typed?.pid && input.typed.hwnd
+          ? `process pid=${input.typed.pid} window hwnd=${input.typed.hwnd}`
+          : "Target process/window not identified after type",
+    });
+    checks.push({
+      id: "text_content",
+      ok: Boolean(
+        input.typed?.text_readback_feasible &&
+          input.typed.intended_text &&
+          input.typed.readback?.includes(input.typed.intended_text),
+      ),
+      detail: input.typed?.text_readback_feasible
+        ? input.typed.readback?.includes(input.typed.intended_text ?? "")
+          ? `Read-back matched ${JSON.stringify(input.typed.intended_text)}`
+          : `Read-back did not match intended text (got ${JSON.stringify(input.typed.readback?.slice(0, 80))})`
+        : "Text-content read-back not feasible — not treated as done",
+    });
+  }
+
+  const typeKr = input.goal.key_results.find((k) => k.metric_ref === "computer.type_verified");
+  const krOk =
+    typeKr != null &&
+    Number(typeKr.current ?? 0) >= Number(typeKr.target);
+  checks.push({
+    id: "kr_computer_type",
+    ok: krOk,
+    detail: typeKr
+      ? `computer.type_verified ${typeKr.current ?? 0}/${typeKr.target}`
+      : "Missing computer.type_verified KR",
+  });
+
+  const passed = checks.every((c) => c.ok);
+  return {
+    passed,
+    summary: passed
+      ? input.mode === "shadow"
+        ? `Computer type Shadow verified — ${SHADOW_SIMULATED_NOTICE}; no keystrokes sent`
+        : `Computer type Live verified — opened ${input.open?.target_id ?? "app"}, typed ${JSON.stringify(input.typed?.intended_text ?? "")}, observed pid=${input.typed?.pid} hwnd=${input.typed?.hwnd} read-back=${JSON.stringify(input.typed?.readback ?? "")}`
+      : `Computer type verification failed: ${checks
+          .filter((c) => !c.ok)
+          .map((c) => c.id)
+          .join(", ")}`,
+    checks,
+    simulated_notice: SHADOW_SIMULATED_NOTICE,
+  };
+}

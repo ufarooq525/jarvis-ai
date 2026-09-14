@@ -34,6 +34,12 @@ async function main(): Promise<void> {
   console.log(
     `Verification: ${result.verification.passed ? "passed" : "failed"} — ${result.verification.summary}`,
   );
+  if (result.operator_report) {
+    console.log(`Report: ${result.operator_report.summary}`);
+    if (result.operator_report.opened) console.log(`  ${result.operator_report.opened}`);
+    if (result.operator_report.typed) console.log(`  ${result.operator_report.typed}`);
+    if (result.operator_report.observed) console.log(`  ${result.operator_report.observed}`);
+  }
   console.log(`Runs: ${result.runs.length}`);
   for (const run of result.runs) {
     console.log(

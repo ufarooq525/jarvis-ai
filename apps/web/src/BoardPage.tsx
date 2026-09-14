@@ -51,7 +51,7 @@ function GoalCard({ goal, onOpen }: { goal: Goal; onOpen: () => void }) {
 
 /** JARVIS Command Center — operator narrative from real API/store data only. */
 export function BoardPage() {
-  const { byStage, openDrawer, loading, error, refresh, goals, mode } = useJarvis();
+  const { byStage, openDrawer, loading, error, refresh, goals, mode, approve } = useJarvis();
   const [now, setNow] = useState<WmNowDto | null>(null);
   const [pending, setPending] = useState<EscalationDto[]>([]);
   const [journal, setJournal] = useState<DecisionRecordDto[]>([]);
@@ -238,10 +238,10 @@ export function BoardPage() {
                     <div className="srow" key={g.id}>
                       <div>
                         <b>Shadow plan ready — {g.title}</b>
-                        <p>Simulated only. Review before any Live action.</p>
+                        <p>Simulated only. Request Live and type OPEN or LIVE to run it.</p>
                       </div>
-                      <button type="button" className="btn" onClick={() => openDrawer(g.id)}>
-                        Review
+                      <button type="button" className="btn" onClick={() => approve(g.id)}>
+                        Request Live…
                       </button>
                     </div>
                   ))}

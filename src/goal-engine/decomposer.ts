@@ -1,6 +1,7 @@
 import type { Goal, Objective, Task } from "../types/model.js";
 import { newId, nowIso } from "../util/ids.js";
 import type { MemoryStore } from "../store/memory-store.js";
+import { COMPUTER_TYPE_PLAN_KIND } from "./computer-type.js";
 import type { NormalizedOutcome } from "./normalize.js";
 
 /** Deterministic decomposer (no LLM) — templates keyed by normalized plan_kind. */
@@ -16,14 +17,18 @@ export function decomposeGoal(
   const objTitle =
     plan_kind === "research"
       ? `Research: ${goal.title}`
-      : plan_kind === "ops"
-        ? `Operate: ${goal.title}`
-        : `Achieve: ${goal.title}`;
+      : plan_kind === COMPUTER_TYPE_PLAN_KIND
+        ? `Computer: ${goal.title}`
+        : plan_kind === "ops"
+          ? `Operate: ${goal.title}`
+          : `Achieve: ${goal.title}`;
 
   const success =
     plan_kind === "research" && normalized?.target_count != null
       ? `${goal.outcome} — deliver ${normalized.target_count} qualifying items in Shadow (no external action)`
-      : goal.outcome;
+      : plan_kind === COMPUTER_TYPE_PLAN_KIND
+        ? `${goal.outcome} — open the allowlisted app, type into that window, verify process/window/text (do not substitute OS start_run)`
+        : goal.outcome;
 
   const obj: Objective = {
     id: newId("obj"),
@@ -34,6 +39,10 @@ export function decomposeGoal(
     order: 1,
   };
   store.saveObjective(obj);
+
+  if (plan_kind === COMPUTER_TYPE_PLAN_KIND) {
+    return decomposeComputerType(store, goal, obj, normalized);
+  }
 
   const inspect: Task = {
     id: newId("task"),
@@ -62,6 +71,7 @@ export function decomposeGoal(
       idempotency_key: `${goal.id}:browser.research`,
     };
     store.saveTask(research);
+    goal.plan_source = goal.plan_source ?? "fallback";
     goal.updated_at = nowIso();
     store.saveGoal(goal);
     return { objectives: [obj], tasks: [inspect, research] };
@@ -81,8 +91,52 @@ export function decomposeGoal(
 
   store.saveTask(dispatch);
 
+  goal.plan_source = goal.plan_source ?? "fallback";
   goal.updated_at = nowIso();
   store.saveGoal(goal);
 
   return { objectives: [obj], tasks: [inspect, dispatch] };
+}
+
+/** Distinct narrow template — removable once real intent planning covers this case. */
+function decomposeComputerType(
+  store: MemoryStore,
+  goal: Goal,
+  obj: Objective,
+  normalized?: NormalizedOutcome,
+): { objectives: Objective[]; tasks: Task[] } {
+  const target_id = normalized?.computer_target_id ?? "notepad";
+  const text = normalized?.type_text ?? "";
+  const open: Task = {
+    id: newId("task"),
+    parent_id: obj.id,
+    goal_id: goal.id,
+    title: `Open ${target_id}`,
+    intent: `Launch allowlisted ${target_id} (Shadow simulate / Live OPEN)`,
+    status: "ready",
+    assignee_kind: "computer",
+    tool_ids: ["computer.open_app"],
+    idempotency_key: `${goal.id}:computer.open_app`,
+    input: { target_id },
+  };
+  const type: Task = {
+    id: newId("task"),
+    parent_id: obj.id,
+    goal_id: goal.id,
+    title: `Type into ${target_id}`,
+    intent: text
+      ? `Type ${JSON.stringify(text)} into the window from the preceding open`
+      : "Type text into the window from the preceding open",
+    status: "ready",
+    assignee_kind: "computer",
+    tool_ids: ["computer.type_text"],
+    idempotency_key: `${goal.id}:computer.type_text`,
+    input: { target_id, text },
+  };
+  store.saveTask(open);
+  store.saveTask(type);
+  goal.plan_source = goal.plan_source ?? "fallback";
+  goal.updated_at = nowIso();
+  store.saveGoal(goal);
+  return { objectives: [obj], tasks: [open, type] };
 }

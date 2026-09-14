@@ -8,6 +8,7 @@ import {
   type ToolManifestDto,
 } from "../api";
 import { useJarvis } from "../store/JarvisProvider";
+import { boardGoalIsComputerType } from "../store/mapApiGoal";
 import type { Goal, Stage } from "../store/types";
 
 const CHIP: Record<Stage, [string, string]> = {
@@ -35,7 +36,9 @@ function provenance(g: Goal): string {
     case "stated":
       return `You typed this at ${g.at}. Details appear after Plan it finishes and the card moves to “Shadow plan”.`;
     case "shadow":
-      return `${g.steps.length} steps. Simulated at ${g.at} against a copy of your data.`;
+      return boardGoalIsComputerType(g)
+        ? `${g.steps.length} steps simulated at ${g.at}. Nothing launched. Request Live and type OPEN to run it.`
+        : `${g.steps.length} steps. Simulated at ${g.at} against a copy of your data.`;
     case "live":
       return `You approved this at ${g.approvedAt ?? g.at}. Step ${g.progress} of ${g.steps.length}.`;
     case "done":
@@ -108,12 +111,15 @@ export function PlanDrawer() {
         ? "What it is doing"
         : "What it did";
 
+  const canRequestLive =
+    g.stage === "shadow" || (g.stage === "done" && boardGoalIsComputerType(g));
+
   let primary = "Open";
   let primarySec = false;
   if (g.stage === "stated") {
     primary = "Cancel this goal";
     primarySec = true;
-  } else if (g.stage === "shadow") primary = "Request Live execution";
+  } else if (canRequestLive) primary = "Request Live execution";
   else if (g.stage === "live") {
     primary = "Stop and roll back";
     primarySec = true;
@@ -125,7 +131,7 @@ export function PlanDrawer() {
   else if (g.stage === "discarded") primary = "Plan it again";
 
   function onPrimary() {
-    if (g!.stage === "shadow") approve(g!.id);
+    if (canRequestLive) approve(g!.id);
     else if (g!.stage === "live") stopLive(g!.id);
     else closeDrawer();
   }
@@ -286,7 +292,7 @@ export function PlanDrawer() {
             <button type="button" className="btn sec">
               Edit a step
             </button>
-            {g.stage === "shadow" ? (
+            {canRequestLive || g.stage === "shadow" ? (
               <button type="button" className="btn sec" onClick={() => discard(g.id)}>
                 Discard plan
               </button>

@@ -448,9 +448,35 @@ Still true after this pass:
 
 ---
 
+## 14. Delta — operator intent, computer, PDF, Live poll (2026-09-14)
+
+This pass made the original operator loop the primary path. Deterministic templates remain **fallback only**.
+
+| Piece | Change |
+| --- | --- |
+| Intent | `DecisionEngine.planFromModel` via ModelRouter (`role=reason`, temperature 0). Validated JSON steps → tasks. Invalid/down → existing decomposer. |
+| Policy | Every model-chosen step still goes through `classifyProposal`. |
+| Orchestrator | Routes `computer.observe.snapshot` / `locate` / `open_app` / `type_text` and `knowledge.pdf.read` in addition to OS / browser / facts / ops. |
+| Computer | Operator loop can observe, locate, shadow-open, and gated Live `computer.type_text` into the **pid/hwnd from the preceding open** (Notepad and Cursor: `plan_kind=computer_type`). Click/coords/focus/generic type stay **blocked**. |
+| PDF | `knowledge.pdf.read` extracts text (naive uncompressed) and stores **observation** facts. No video/audio. No new `plan_kind`. |
+| Live verify | `promoteToLive` polls `getRun` until terminal or timeout. `verification_passed` is false on plan-accept. Goal stays `active` until terminal success; failed → `blocked`. |
+| Report | Goal Detail shows an operator report (steps + verification). No new pages. |
+
+Still **not** real:
+
+- General click/coordinate computer use (Notepad type_text is gated Live only)
+- Video / audio ingestion
+- Upwork / Fiverr
+- Real browser (still allowlisted GET)
+- Voice as an operator (STT still only fills the composer)
+- Live OS plan body still `{ approver }` only — terminal `getRun` is run completion, not a business KR
+- Memory does not yet change later model plans beyond facts passed into the planner prompt
+
+---
+
 ## Document control
 
 | Field | Value |
 | --- | --- |
-| Status | Architectural truth as of 2026-09-14 audit |
-| Next | Implement the first operator loop using existing runtimes; do not add product surface |
+| Status | Architectural truth as of 2026-09-14 (intent + computer + PDF + Live poll) |
+| Next | Remove `computer_type` template once Decision Engine plans open→type itself; real browser; video/audio after PDF pattern |

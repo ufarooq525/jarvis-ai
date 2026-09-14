@@ -77,6 +77,17 @@ export interface GoalDetailResponse {
     mode: string;
     trust_tier: string;
     updated_at?: string;
+    plan_source?: "model" | "fallback";
+    operator_report?: {
+      summary: string;
+      plan_source: "model" | "fallback";
+      steps: Array<{ capability_id: string; ok: boolean; observation: string }>;
+      verification: string;
+      outcome: string;
+      opened?: string;
+      typed?: string;
+      observed?: string;
+    };
     key_results: { id: string; label: string; current?: number | string; target: number | string }[];
   };
   objectives: { id: string; title: string; success_criteria: string }[];

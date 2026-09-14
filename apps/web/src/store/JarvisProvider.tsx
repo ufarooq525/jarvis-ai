@@ -50,7 +50,7 @@ type JarvisContextValue = {
   setMode: (m: Mode) => void;
   approve: (id: string) => void;
   cancelPromote: () => void;
-  confirmPromoteLive: () => Promise<void>;
+  confirmPromoteLive: (confirm?: string) => Promise<void>;
   promoteTarget: Goal | null;
   promoting: boolean;
   undo: (id: string) => void;
@@ -115,7 +115,12 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
   const applyOverlays = useCallback((mapped: Goal[]): Goal[] => {
     return mapped.map((g) => {
       const o = overlays.current.get(g.id);
-      return o ? { ...g, ...o } : g;
+      if (!o) return g;
+      // A stale "done" overlay must not hide a Shadow plan that still needs OPEN.
+      if (g.stage === "shadow" && o.stage === "done") {
+        return { ...g, ...o, stage: "shadow" };
+      }
+      return { ...g, ...o };
     });
   }, []);
 
@@ -213,9 +218,8 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
   const approve = useCallback(
     (id: string) => {
       const g = goals.find((x) => x.id === id);
-      if (!g) return;
-      // Shadow plans (waiting or finished simulation) may request Live; Live/failed/discarded may not.
-      if (g.stage === "live" || g.stage === "failed" || g.stage === "discarded") return;
+      // Missing from the board is fine (Goal Detail). Live/failed/discarded may not re-promote.
+      if (g && (g.stage === "live" || g.stage === "failed" || g.stage === "discarded")) return;
       setPromoteId(id);
     },
     [goals],
@@ -226,7 +230,7 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
     setPromoteId(null);
   }, [promoting]);
 
-  const confirmPromoteLive = useCallback(async () => {
+  const confirmPromoteLive = useCallback(async (confirm = "LIVE") => {
     if (!promoteId) return;
     const g = goals.find((x) => x.id === promoteId);
     if (!g) return;
@@ -243,24 +247,37 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
       } catch {
         /* use localStorage */
       }
-      if (adapter === "umer-read" && !projectId) {
+      const computerSlice = confirm.trim() === "OPEN";
+      if (!computerSlice && adapter === "umer-read" && !projectId) {
         throw new Error(
           "No project selected — open Settings, click Umer OS (real), pick a project, then try again.",
         );
       }
       const result = await promoteLive(promoteId, {
-        confirm: "LIVE",
-        project_id: projectId,
+        confirm,
+        project_id: computerSlice ? undefined : projectId,
       });
       const detail = await getGoal(result.goal.id);
-      const mapped = mapDetailToBoardGoal(detail, {
-        stage: "live",
-        progress: 1,
-        approvedAt: nowStr(),
-      });
+      const computerDone =
+        computerSlice &&
+        (detail.goal.status === "done" ||
+          detail.goal.status === "succeeded" ||
+          detail.goal.status === "blocked" ||
+          detail.goal.status === "failed");
+      const overlayStage: Stage = computerDone
+        ? detail.goal.status === "blocked" || detail.goal.status === "failed"
+          ? "failed"
+          : "done"
+        : "live";
+      const mapped = mapDetailToBoardGoal(
+        detail,
+        result.os_run_id || overlayStage === "live"
+          ? { stage: overlayStage, progress: overlayStage === "live" ? 1 : undefined, approvedAt: nowStr() }
+          : { stage: overlayStage, approvedAt: nowStr() },
+      );
       overlays.current.set(mapped.id, {
-        stage: "live",
-        progress: 1,
+        stage: overlayStage,
+        progress: overlayStage === "live" ? 1 : undefined,
         approvedAt: mapped.approvedAt,
       });
       setGoals((prev) => {
@@ -286,29 +303,33 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
       setToast({
         goalId: result.goal.id,
         text: result.os_run_id
-          ? `Live accepted — ${result.os_run_id}`
+          ? result.goal.status === "done"
+            ? `Live run completed — ${result.os_run_id}`
+            : `Live started — waiting for run completion (${result.os_run_id})`
           : `Live promote: ${result.message}`,
       });
       if (undoRef.current) window.clearTimeout(undoRef.current);
       undoRef.current = window.setTimeout(() => setToast(null), 7000);
 
       const gid = result.goal.id;
-      let n = 0;
-      const poll = window.setInterval(() => {
-        n += 1;
-        void getLiveStatus(gid)
-          .then((s) => {
-            if (s.os_run?.status === "succeeded" || s.run?.status === "succeeded") {
-              overlays.current.set(gid, { stage: "done", progress: undefined });
-              setGoals((prev) =>
-                prev.map((x) => (x.id === gid ? { ...x, stage: "done" as const } : x)),
-              );
-              window.clearInterval(poll);
-            }
-          })
-          .catch(() => undefined);
-        if (n >= 8) window.clearInterval(poll);
-      }, 2500);
+      if (!computerSlice) {
+        let n = 0;
+        const poll = window.setInterval(() => {
+          n += 1;
+          void getLiveStatus(gid)
+            .then((s) => {
+              if (s.os_run?.status === "succeeded" || s.run?.status === "succeeded") {
+                overlays.current.set(gid, { stage: "done", progress: undefined });
+                setGoals((prev) =>
+                  prev.map((x) => (x.id === gid ? { ...x, stage: "done" as const } : x)),
+                );
+                window.clearInterval(poll);
+              }
+            })
+            .catch(() => undefined);
+          if (n >= 8) window.clearInterval(poll);
+        }, 2500);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Live promote failed";
       setError(msg);
@@ -408,7 +429,7 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
   );
 
   const planOutcome = useCallback(
-    async (text: string, _preferredMode?: Mode) => {
+    async (text: string, preferredMode?: Mode) => {
       const title = text.trim().slice(0, 72) || "Untitled outcome";
       const pendingId = uid("pending");
       const at = nowStr();
@@ -433,7 +454,10 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
         time: at,
         kind: "",
         title: `You stated "${title}"`,
-        detail: "Calling JARVIS Goal Engine (Shadow)…",
+        detail:
+          preferredMode === "live"
+            ? "Planning in Shadow first, then asking for Live confirm…"
+            : "Calling JARVIS Goal Engine (Shadow)…",
         mine: true,
         goalId: pendingId,
       });
@@ -452,7 +476,6 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
         setGoals((prev) => {
           const withoutPending = prev.filter((g) => g.id !== pendingId);
           if (!detail) {
-            // Minimal card from summary if detail missing
             const fallback: Goal = {
               id: result.goal.id,
               title: result.goal.title,
@@ -475,18 +498,27 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
           return [mapped, ...withoutPending.filter((g) => g.id !== mapped.id)];
         });
 
+        const merged = result.decision_outcome === "merge_into_existing";
         appendLog({
           day: todayLabel(),
           time: nowStr(),
           kind: "sh",
-          title: `Planned "${result.goal.title}" in Shadow`,
-          detail:
-            result.message ||
-            "Shadow plan ready. Waiting on your review — nothing reaches the outside world until you approve.",
+          title: merged
+            ? `Already had an active plan for "${result.goal.title}"`
+            : `Planned "${result.goal.title}" in Shadow`,
+          detail: merged
+            ? "Merged into the existing active goal — no second Shadow run. Discard or finish that goal to plan it again."
+            : preferredMode === "live"
+              ? "Shadow plan ready. Confirm with OPEN or LIVE to run it for real."
+              : result.message ||
+                "Shadow plan ready. Waiting on your review — nothing reaches the outside world until you approve.",
           fx: "simulated · nothing sent",
           fxk: "sim",
           goalId: result.goal.id,
         });
+        if (preferredMode === "live") {
+          setPromoteId(result.goal.id);
+        }
       } catch (e) {
         setGoals((prev) => prev.filter((g) => g.id !== pendingId));
         const msg = e instanceof Error ? e.message : "Shadow loop failed";
@@ -532,7 +564,18 @@ export function JarvisProvider({ children }: { children: ReactNode }) {
       approve,
       cancelPromote,
       confirmPromoteLive,
-      promoteTarget: promoteId ? (goals.find((g) => g.id === promoteId) ?? null) : null,
+      promoteTarget: promoteId
+        ? (goals.find((g) => g.id === promoteId) ?? {
+            id: promoteId,
+            title: "Goal",
+            summary: "",
+            domain: "general",
+            stage: "shadow",
+            at: nowStr(),
+            steps: [],
+            effects: null,
+          })
+        : null,
       promoting,
       undo,
       discard,

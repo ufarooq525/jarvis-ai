@@ -2,21 +2,18 @@
 
 ## Product stance (2026-09-14)
 
-JARVIS is a **personal operator / control plane**, not a collection of feature demos.
-Architectural truth: `docs/JARVIS_ARCHITECTURE_TRUTH.md`.
+JARVIS is a **personal computer operator**. Architectural truth: `docs/JARVIS_ARCHITECTURE_TRUTH.md` (see §14).
 
 ## Operator loop (current)
 
-Canonical path inside Goal Engine:
-
 ```text
-outcome → goal → decision → policy → orchestrator → runtime → observation → evidence → verification → done | blocked
+outcome → model plan (fallback: decomposer) → decide → policy → orchestrator → runtime → observe → verify → done | blocked | active
 ```
 
-- Research outcomes use `browser.research` + memory + ops qualify — **not** an OS noop pretending to be research.
-- Outcome KRs (`research.opportunity_count`) are measured from qualifying observations only.
-- Unmet KRs **block** the goal. Shadow lifecycle is not outcome fulfillment.
-- “Find 10 Laravel SaaS opportunities in Saudi Arabia” still does **not** yield 10 opportunities from allowlisted/simulated sources. That is a real block, not a fake `done`.
+- ModelRouter plans capability JSON when available; deterministic templates are fallback only.
+- Computer observe / locate / shadow-open / gated Live `type_text` (OPEN) into the launched pid (Notepad, Cursor); click/scroll/focus still blocked.
+- `knowledge.pdf.read` stores observation facts. No video/audio.
+- Live: poll `getRun` until terminal. Plan accepted is not done.
 
 ## Reconciliation
 
@@ -24,22 +21,26 @@ outcome → goal → decision → policy → orchestrator → runtime → observ
 - [x] Command Center + Goal Detail honesty
 - [x] Architecture truth map
 - [x] Thin Decision Engine + Orchestrator over existing runtimes
+- [x] Model planner + ComputerRuntime + PDF read + Live poll
 - [ ] Full Live E2E through Umer AI OS with outcome payload still **incomplete**
 
 ## What is genuinely working
 
-- Shadow operator loop: inspect → (OS start_run **or** browser research) → observations → evidence → verify outcome KRs
-- Live promote: type `LIVE` → OS plan via `OsRuntimeAdapter` (generic `{ approver }` body — plan ≠ outcome)
+- Shadow operator loop with model plan or fallback decomposer
+- Computer on Orchestrator (observe/locate/open + Live `type_text` into identified pid after OPEN — Notepad and Cursor)
+- PDF text → world-model facts
+- Live promote stays in progress until `getRun` is terminal
 - Computer Live open (`OPEN`), Browser allowlisted GET
 - Approvals store, kill switch, Settings connection checklist
 
 ## What is NOT complete
 
-- Live plan body still does not carry the research outcome
-- Ops send / Skills execute / Browser act / Computer click → blocked
-- Memory does not yet change later decisions beyond this loop’s KR
-- Model router not in Goal Engine path
+- Live plan body still does not carry the research/business outcome
+- Click / coords / Live browser act / ops send → blocked
+- `computer_type` is a removable Notepad/Cursor open→type template, not general intent planning
+- Memory does not yet change later decisions beyond planner facts
 - Escalation approve ≠ Live OS dispatch
+- Video/audio, Upwork/Fiverr, general browsing
 
 ## Verify
 

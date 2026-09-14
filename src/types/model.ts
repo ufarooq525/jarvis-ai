@@ -35,6 +35,18 @@ export interface Goal {
   owner_principal_id: string;
   created_at: string;
   updated_at: string;
+  /** How tasks were produced: model plan vs deterministic decomposer. */
+  plan_source?: "model" | "fallback";
+  operator_report?: {
+    summary: string;
+    plan_source: "model" | "fallback";
+    steps: Array<{ capability_id: string; ok: boolean; observation: string }>;
+    verification: string;
+    outcome: GoalStatus;
+    opened?: string;
+    typed?: string;
+    observed?: string;
+  };
 }
 
 export interface Objective {
@@ -56,6 +68,8 @@ export interface Task {
   assignee_kind: "os_agent" | "computer" | "human" | "jarvis_internal";
   tool_ids: string[];
   idempotency_key: string;
+  /** Structured capability inputs (model plan or orchestrator). */
+  input?: Record<string, unknown>;
 }
 
 export interface AgentRun {

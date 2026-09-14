@@ -93,7 +93,9 @@ export function Composer({ visible }: { visible: boolean }) {
             ? error
             : voiceNote
               ? voiceNote
-              : "Describe the outcome, not the steps. Calls JARVIS API Shadow Loop (mock adapter). Live still asks before it runs."}
+              : composerMode === "live"
+                ? "Plans in Shadow first, then asks you to type OPEN or LIVE. Nothing launches until you confirm."
+                : "Plans in Shadow only. Review the card, then Request Live when you want the real action."}
         </p>
       </form>
     </div>

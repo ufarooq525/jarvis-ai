@@ -16,11 +16,21 @@ import {
   taskStatusMark,
 } from "./lib/operator-state";
 
-function statusHuman(goal: GoalDetailResponse["goal"]): { label: string; note: string } {
-  if (goal.mode === "live" && goal.status !== "done" && goal.status !== "failed") {
+function statusHuman(
+  goal: GoalDetailResponse["goal"],
+  tasks: GoalDetailResponse["tasks"],
+): { label: string; note: string } {
+  const computerType = (tasks ?? []).some((t) => t.tool_ids?.includes("computer.type_text"));
+  if (
+    goal.mode === "live" &&
+    goal.status !== "done" &&
+    goal.status !== "failed" &&
+    goal.status !== "blocked" &&
+    goal.status !== "cancelled"
+  ) {
     return {
       label: "Working · Live",
-      note: "May affect connected systems. Watch evidence and Live status.",
+      note: "Run is in progress. Plan accepted is not completion.",
     };
   }
   if (goal.status === "failed") {
@@ -35,13 +45,19 @@ function statusHuman(goal: GoalDetailResponse["goal"]): { label: string; note: s
   if (goal.status === "cancelled") {
     return { label: "Cancelled", note: "This goal was cancelled." };
   }
+  if (goal.mode === "shadow" && computerType) {
+    return {
+      label: "Shadow plan ready",
+      note: "Simulated only — the app was not launched. Request Live and type OPEN to actually do it.",
+    };
+  }
   if (goal.status === "done" || goal.status === "succeeded") {
     return {
       label: goal.mode === "live" ? "Completed · Live" : "Completed · Shadow",
       note:
         goal.mode === "shadow"
           ? "Shadow finished the simulated lifecycle. That is not proof the real-world outcome happened."
-          : "Live path finished according to JARVIS records — verify evidence before trusting results.",
+          : "Live run reached a terminal OS status. That is run completion, not a business-outcome KR.",
     };
   }
   if (goal.mode === "shadow") {
@@ -114,7 +130,8 @@ export function GoalDetailPage() {
   }
 
   const { goal, tasks, runs, objectives, adapter } = detail;
-  const st = statusHuman(goal);
+  const st = statusHuman(goal, tasks);
+  const computerType = tasks.some((t) => t.tool_ids?.includes("computer.type_text"));
   const krs = describeKeyResults(detail);
   const currentTask =
     tasks.find((t) => taskStatusMark(t.status) === "current") ??
@@ -188,6 +205,35 @@ export function GoalDetailPage() {
             </span>
           </div>
         </div>
+
+        {goal.operator_report ? (
+          <div className="panel">
+            <div className="panel-hd">
+              <h2>Report</h2>
+              <p>
+                {goal.operator_report.plan_source === "model"
+                  ? "Planned by the model, then executed under policy."
+                  : "Fallback deterministic plan — model was unavailable or invalid."}
+              </p>
+            </div>
+            <div className="srow">
+              <div>
+                <b>Outcome</b>
+                <p>{goal.operator_report.summary}</p>
+                {goal.operator_report.opened ? (
+                  <p className="cc-note">{goal.operator_report.opened}</p>
+                ) : null}
+                {goal.operator_report.typed ? (
+                  <p className="cc-note">{goal.operator_report.typed}</p>
+                ) : null}
+                {goal.operator_report.observed ? (
+                  <p className="cc-note">{goal.operator_report.observed}</p>
+                ) : null}
+                <p className="cc-note">{goal.operator_report.verification}</p>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {pending.length > 0 ? (
           <div className="panel">
@@ -285,9 +331,11 @@ export function GoalDetailPage() {
             <p>
               {nextTask
                 ? `Next task: ${nextTask.title}`
-                : goal.mode === "shadow" && goal.status === "done"
-                  ? "If you want real execution, request Live and type LIVE — only after reviewing the plan."
-                  : "No further tasks queued."}
+                : goal.mode === "shadow" && computerType
+                  ? "Request Live and type OPEN to launch the app and type into that window."
+                  : goal.mode === "shadow"
+                    ? "If you want real execution, request Live and type LIVE — only after reviewing the plan."
+                    : "No further tasks queued."}
             </p>
           </div>
           <div className="cc-actions" style={{ padding: "0 16px 16px" }}>

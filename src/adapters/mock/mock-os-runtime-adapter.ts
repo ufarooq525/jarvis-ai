@@ -93,16 +93,16 @@ export class MockOsRuntimeAdapter implements OsRuntimeAdapter {
     }
 
     const os_run_id = newId("mock_run");
+    const live = spec.mode === "live";
     const record: OsRunRecord = {
       os_run_id,
-      status: spec.mode === "shadow" ? "noop_shadow" : "simulated",
-      summary:
-        spec.mode === "shadow"
-          ? `SHADOW noop — would invoke ${spec.tool_id} (mock; no OS call)`
-          : `Mock simulated ${spec.tool_id} (still no real OS)`,
+      status: live ? "running" : "noop_shadow",
+      summary: live
+        ? `Mock Live run started for ${spec.tool_id} (running; plan is not completion)`
+        : `SHADOW noop — would invoke ${spec.tool_id} (mock; no OS call)`,
       correlation: spec.correlation,
       started_at: nowIso(),
-      finished_at: nowIso(),
+      finished_at: live ? undefined : nowIso(),
     };
     this.runs.set(os_run_id, record);
     this.byIdempotency.set(spec.idempotency_key, os_run_id);

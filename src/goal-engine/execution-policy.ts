@@ -10,12 +10,17 @@ export interface ExecutionPolicy {
    * Defaults off under Vitest; on for the API process so observations can be real.
    */
   browser_fetch: boolean;
+  /** Live getRun poll until terminal. Short under Vitest so tests do not hang. */
+  live_poll_timeout_ms: number;
+  live_poll_interval_ms: number;
 }
 
 export const DEFAULT_SHADOW_EXECUTION: ExecutionPolicy = {
   timeout_ms: 8_000,
   max_attempts: 2,
   browser_fetch: !process.env.VITEST,
+  live_poll_timeout_ms: process.env.VITEST ? 80 : 15_000,
+  live_poll_interval_ms: process.env.VITEST ? 15 : 400,
 };
 
 export class TimeoutError extends Error {

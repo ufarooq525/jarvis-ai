@@ -5,6 +5,17 @@ import type { AppTarget, ComputerTargetId, LocateResult } from "./types.js";
 
 export const APP_TARGETS: AppTarget[] = [
   {
+    id: "cursor",
+    display_name: "Cursor",
+    aliases: ["cursor", "cursor ide"],
+    windows_commands: [
+      path.join(process.env.LOCALAPPDATA ?? "", "Programs", "cursor", "Cursor.exe"),
+      path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Cursor", "Cursor.exe"),
+    ],
+    process_names: ["Cursor"],
+    launch_args: ["--new-window"],
+  },
+  {
     id: "vscode",
     display_name: "VS Code",
     aliases: ["code", "visual studio code", "vscode"],
@@ -13,6 +24,7 @@ export const APP_TARGETS: AppTarget[] = [
       path.join(process.env.LOCALAPPDATA ?? "", "Programs", "Microsoft VS Code", "Code.exe"),
       path.join(process.env.ProgramFiles ?? "", "Microsoft VS Code", "Code.exe"),
     ],
+    process_names: ["Code"],
   },
   {
     id: "browser",
@@ -42,6 +54,7 @@ export const APP_TARGETS: AppTarget[] = [
     display_name: "Notepad",
     aliases: ["notepad"],
     windows_commands: ["notepad"],
+    process_names: ["notepad"],
   },
 ];
 
@@ -70,6 +83,19 @@ function whichCommand(cmd: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function aliasHits(needle: string, alias: string): boolean {
+  if (needle === alias) return true;
+  return new RegExp(`\\b${escapeRe(alias)}\\b`).test(needle);
+}
+
+export function getAppTarget(id: ComputerTargetId): AppTarget | undefined {
+  return APP_TARGETS.find((t) => t.id === id);
 }
 
 /** Read-only locate — does not launch anything. */
@@ -136,9 +162,13 @@ export function listTargets(): Array<AppTarget & { locate: LocateResult }> {
 export function resolveTargetId(input: string): ComputerTargetId | undefined {
   const needle = input.trim().toLowerCase();
   for (const t of APP_TARGETS) {
-    if (t.id === needle || t.aliases.some((a) => a === needle || needle.includes(a))) {
-      return t.id;
-    }
+    if (t.id === needle) return t.id;
+  }
+  for (const t of APP_TARGETS) {
+    if (t.aliases.some((a) => a === needle)) return t.id;
+  }
+  for (const t of APP_TARGETS) {
+    if (t.aliases.some((a) => aliasHits(needle, a))) return t.id;
   }
   return undefined;
 }

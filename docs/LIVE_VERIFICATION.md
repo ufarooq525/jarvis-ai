@@ -30,9 +30,10 @@ Performs real actions:
 2. Goal intake → Strong-confirm **LIVE** → Control API plan (`os_run_id`)
 3. `live-status` + evidence chain
 4. Computer **Live open** Notepad (type `OPEN`) — launches the app
-5. Kill switch blocks Live open; then clears
-6. Browser **SHADOW research** against `https://example.com/` (allowlisted GET + facts)
-7. Click/act remains 403 (computer + browser)
+5. Goal path **Open Notepad|Cursor and type Hello from Jarvis** → Shadow simulates; Live `OPEN` types into that pid (see manual note below)
+6. Kill switch blocks Live open; then clears
+7. Browser **SHADOW research** against `https://example.com/` (allowlisted GET + facts)
+8. Click / scroll / focus_window remain 403 (computer + browser)
 
 ### Prerequisites
 
@@ -74,6 +75,7 @@ Fails closed if JARVIS/Control is down, `project_id` missing, adapter is mock, o
 1. Settings → Connection → adapter **Umer OS**, Control API base, **project_id** → Save  
 2. Board: create goal → Request Live → type **LIVE** → expect `os_run_id`  
 3. Computer → **Live open…** → type **OPEN** → app launches  
+3b. Board: goal **Open Notepad and type Hello from Jarvis.** → Request Live → type **OPEN** (not LIVE) → Notepad launches, text is typed into that window, report shows process/window/read-back  
 4. Kill switch ON → Live blocked  
 5. Do not rely on Approvals “practice demo” for Live confidence  
 6. Attention rail (right edge) shows pending decisions + Now  
@@ -88,7 +90,23 @@ Fails closed if JARVIS/Control is down, `project_id` missing, adapter is mock, o
 - [ ] Kill switch blocks Live
 - [ ] Missing project_id fails closed
 - [ ] Evidence / journal record Live decisions
-- [ ] Click/type still blocked
+- [ ] Click/scroll/focus_window still blocked; `computer.type_text` Live only after OPEN on the identified pid
+
+### Manual Live note — “Open Notepad and type Hello from Jarvis”
+
+This path touches **real OS window state**. Unit tests cover Shadow (assert `typeInto` is never called) and Live with an injected typer. They do **not** launch Notepad.
+
+Do this on a Windows host when you want the real slice:
+
+1. `pnpm shadow "Open Notepad and type Hello from Jarvis."`  
+   Expect two tasks (`computer.open_app` → `computer.type_text`), `SIMULATED`, **no** Notepad window, report says no keystrokes sent.
+2. In the UI, Request Live on that goal and type **OPEN** (not `LIVE`).  
+   Expect: a new Notepad process (on Windows 11 this may be `WindowsApps\...\Notepad.exe`, not the spawn stub); `Hello from Jarvis` in that window’s text editor; Goal Detail report names the pid/hwnd and the UIA text read-back.
+3. If the window cannot be identified, or read-back does not match, the goal must stay **blocked** with that reason — never “task completed.”
+4. Same loop for **Open Cursor and type Hello from Jarvis.** — type **OPEN**; expect a Cursor window (`--new-window`; do not type into an unidentified existing session).
+5. Click / scroll / focus_window must still refuse.
+
+Known gap: if UIA `ValuePattern` is missing, the script falls back to `SendKeys` after focusing that editor control. Verification still reads the same control; mismatch → blocked.
 
 ### Phase 12 reliability checklist
 

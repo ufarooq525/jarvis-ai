@@ -1,4 +1,7 @@
 import type { BrowserRuntime } from "../browser/runtime.js";
+import type { ComputerRuntime } from "../computer/runtime.js";
+import { COMPUTER_LIVE_OPEN_CONFIRM } from "../computer/types.js";
+import { resolveTargetId } from "../computer/targets.js";
 import type { ResearchFact } from "../browser/types.js";
 import type { DispatchBridge } from "../goal-engine/dispatch-bridge.js";
 import type { ExecutionPolicy } from "../goal-engine/execution-policy.js";
@@ -13,7 +16,6 @@ import { assertTaskTransition } from "../goal-engine/transitions.js";
 import { recordObservation } from "../observation/record.js";
 import { isQualifyingOpportunityFact } from "../ops/qualify-facts.js";
 import { createOpportunityFromFacts } from "../ops/from-facts.js";
-import { getOpportunityStore } from "../ops/opportunity-store.js";
 import type { OperatorDecision } from "../decision/types.js";
 import type { AgentRun, Goal, Task } from "../types/model.js";
 import type { EvidenceChain } from "../evidence/chain.js";
@@ -24,6 +26,8 @@ import { JARVIS_PRINCIPAL } from "../trust/principals.js";
 import { newId } from "../util/ids.js";
 import { ingestBrowserResearch } from "../world-model/ingest-research.js";
 import { getFactStore } from "../world-model/fact-store.js";
+import { readPdf, type PdfBytesLoader, type PdfTextExtractor } from "../knowledge/pdf.js";
+import { ingestPdfExtract } from "../knowledge/ingest-pdf.js";
 
 export interface OrchestratorDeps {
   store: MemoryStore;
@@ -31,9 +35,12 @@ export interface OrchestratorDeps {
   tools: ToolRegistry;
   bridge: DispatchBridge;
   browser: BrowserRuntime;
+  computer: ComputerRuntime;
   execution: ExecutionPolicy;
   /** When false, browser research is simulate_only (no network). */
   browser_fetch: boolean;
+  pdf_loader?: PdfBytesLoader;
+  pdf_extractor?: PdfTextExtractor;
 }
 
 export interface OrchestratorResult {
@@ -110,10 +117,16 @@ export class Orchestrator {
         this.deps.store.saveRun(run);
         return { ok: false, run, skipped: verdict.reason, message: verdict.reason };
       }
+      const args = this.inputOf(input);
+      const computerOpenAuthorized =
+        (cap === "computer.open_app" || cap === "computer.type_text") &&
+        typeof args.confirm === "string" &&
+        args.confirm.trim() === COMPUTER_LIVE_OPEN_CONFIRM;
       if (
         (verdict.class === "approval_required" || verdict.class === "strong_confirmation") &&
         input.goal.mode !== "shadow" &&
-        input.goal.trust_tier !== "SHADOW"
+        input.goal.trust_tier !== "SHADOW" &&
+        !computerOpenAuthorized
       ) {
         const run = syntheticRun(input.goal, input.task, input.decision_id, cap, "proposed");
         run.policy_verdict_id = verdict.id;
@@ -128,6 +141,12 @@ export class Orchestrator {
     }
     if (cap === "browser.research") {
       return this.executeBrowserResearch(input);
+    }
+    if (cap.startsWith("computer.")) {
+      return this.executeComputer(input, cap);
+    }
+    if (cap === "knowledge.pdf.read") {
+      return this.executePdfRead(input);
     }
     if (cap === "wm.facts.upsert") {
       return this.executeKnowledgeStore(input);
@@ -367,5 +386,327 @@ export class Orchestrator {
           ? "No qualifying opportunity candidates in observations — none fabricated"
           : `Created ${created} opportunities from qualifying facts`,
     };
+  }
+
+  private inputOf(input: {
+    task?: Task;
+    decision: OperatorDecision;
+  }): Record<string, unknown> {
+    return { ...(input.task?.input ?? {}), ...(input.decision.input ?? {}) };
+  }
+
+  private markTask(task: Task | undefined, to: Task["status"]): void {
+    if (!task) return;
+    if (task.status !== to) {
+      assertTaskTransition(task.status, to);
+      task.status = to;
+      this.deps.store.saveTask(task);
+    }
+  }
+
+  private beginTask(task: Task | undefined): void {
+    if (!task) return;
+    if (task.status === "failed") {
+      assertTaskTransition("failed", "ready");
+      task.status = "ready";
+    }
+    if (task.status === "ready" || task.status === "pending") {
+      assertTaskTransition(task.status, "running");
+      task.status = "running";
+      this.deps.store.saveTask(task);
+    }
+  }
+
+  private markTypeVerified(goal: Goal, passed: boolean): void {
+    const kr = goal.key_results.find((k) => k.metric_ref === "computer.type_verified");
+    if (!kr) return;
+    kr.current = passed ? 1 : 0;
+    kr.last_measured_at = new Date().toISOString();
+    this.deps.store.saveGoal(goal);
+  }
+
+  private targetOpened(goal_id: string, target_id: string): boolean {
+    return [...this.deps.store.tasks.values()].some(
+      (t) =>
+        t.goal_id === goal_id &&
+        t.tool_ids.includes("computer.open_app") &&
+        t.status === "done" &&
+        String(t.input?.target_id ?? "") === target_id,
+    );
+  }
+
+  private async executeComputer(
+    input: {
+      goal: Goal;
+      task?: Task;
+      decision: OperatorDecision;
+      decision_id: string;
+    },
+    cap: string,
+  ): Promise<OrchestratorResult> {
+    this.beginTask(input.task);
+    const args = this.inputOf(input);
+    const rawTarget = String(args.target_id ?? args.target ?? "");
+    const target_id = rawTarget ? resolveTargetId(rawTarget) ?? rawTarget : undefined;
+
+    if (cap === "computer.observe.snapshot") {
+      const obs = this.deps.computer.observe("standalone");
+      recordObservation(this.deps.evidence, {
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+        capability_id: cap,
+        kind: "state_snapshot",
+        summary: obs.snapshot_summary,
+        simulated: input.goal.mode === "shadow",
+        decision_id: input.decision_id,
+      });
+      const run = syntheticRun(input.goal, input.task, input.decision_id, cap, "simulated");
+      this.deps.store.saveRun(run);
+      this.markTask(input.task, "done");
+      return { ok: true, run, message: obs.snapshot_summary };
+    }
+
+    if (cap === "computer.locate") {
+      if (!target_id) {
+        this.markTask(input.task, "failed");
+        return { ok: false, message: "computer.locate requires target_id", skipped: "target_id" };
+      }
+      const locate = this.deps.computer.locate(target_id);
+      recordObservation(this.deps.evidence, {
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+        capability_id: cap,
+        kind: "state_snapshot",
+        summary: locate.detail,
+        simulated: true,
+        decision_id: input.decision_id,
+      });
+      const run = syntheticRun(
+        input.goal,
+        input.task,
+        input.decision_id,
+        cap,
+        locate.found ? "simulated" : "failed",
+      );
+      this.deps.store.saveRun(run);
+      this.markTask(input.task, locate.found ? "done" : "failed");
+      return { ok: locate.found, run, message: locate.detail };
+    }
+
+    if (cap === "computer.open_app") {
+      if (!target_id) {
+        this.markTask(input.task, "failed");
+        return { ok: false, message: "computer.open_app requires target_id", skipped: "target_id" };
+      }
+      if (input.goal.mode === "live") {
+        const live = await this.deps.computer.runLiveOpen({
+          target: target_id,
+          confirm: typeof args.confirm === "string" ? args.confirm : undefined,
+          goal_id: input.goal.id,
+        });
+        if ("need_confirm" in live) {
+          this.markTask(input.task, "failed");
+          const run = syntheticRun(input.goal, input.task, input.decision_id, cap, "proposed");
+          this.deps.store.saveRun(run);
+          return { ok: false, run, skipped: live.message, message: live.message };
+        }
+        const passed = Boolean(live.action.verification?.passed);
+        recordObservation(this.deps.evidence, {
+          goal_id: input.goal.id,
+          task_id: input.task?.id,
+          action_id: live.action.id,
+          capability_id: cap,
+          kind: "host_process",
+          summary: live.action.verification?.summary ?? live.message,
+          simulated: false,
+          decision_id: input.decision_id,
+        });
+        const run = syntheticRun(
+          input.goal,
+          input.task,
+          input.decision_id,
+          cap,
+          passed ? "succeeded" : "failed",
+        );
+        this.deps.store.saveRun(run);
+        this.markTask(input.task, passed ? "done" : "failed");
+        if (input.task) {
+          input.task.input = { ...(input.task.input ?? {}), target_id };
+          this.deps.store.saveTask(input.task);
+        }
+        return { ok: passed, run, message: live.message };
+      }
+
+      const shadow = await this.deps.computer.runShadowOpen({
+        target: target_id,
+        goal_id: input.goal.id,
+      });
+      const passed = Boolean(shadow.action.verification?.passed);
+      recordObservation(this.deps.evidence, {
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+        action_id: shadow.action.id,
+        capability_id: cap,
+        kind: "host_process",
+        summary: shadow.action.verification?.summary ?? shadow.message,
+        simulated: true,
+        decision_id: input.decision_id,
+      });
+      const run = syntheticRun(
+        input.goal,
+        input.task,
+        input.decision_id,
+        cap,
+        passed ? "simulated" : "failed",
+      );
+      this.deps.store.saveRun(run);
+      if (input.task) {
+        input.task.input = { ...(input.task.input ?? {}), target_id };
+      }
+      this.markTask(input.task, passed ? "done" : "failed");
+      return { ok: passed, run, message: shadow.message };
+    }
+
+    if (cap === "computer.type_text") {
+      if (!target_id) {
+        this.markTask(input.task, "failed");
+        return { ok: false, message: "computer.type_text requires target_id", skipped: "target_id" };
+      }
+      const text = String(args.text ?? "");
+      if (input.goal.mode === "live") {
+        const live = await this.deps.computer.runLiveType({
+          target: target_id,
+          text,
+          confirm: typeof args.confirm === "string" ? args.confirm : undefined,
+          goal_id: input.goal.id,
+          prior_open:
+            this.targetOpened(input.goal.id, target_id) ||
+            this.deps.computer.getLaunch(input.goal.id)?.target_id === target_id,
+        });
+        if ("need_confirm" in live) {
+          this.markTask(input.task, "failed");
+          const run = syntheticRun(input.goal, input.task, input.decision_id, cap, "proposed");
+          this.deps.store.saveRun(run);
+          return { ok: false, run, skipped: live.message, message: live.message };
+        }
+        const passed = Boolean(live.action.verification?.passed);
+        this.markTypeVerified(input.goal, passed);
+        recordObservation(this.deps.evidence, {
+          goal_id: input.goal.id,
+          task_id: input.task?.id,
+          action_id: live.action.id,
+          capability_id: cap,
+          kind: "host_process",
+          summary: live.action.verification?.summary ?? live.message,
+          simulated: false,
+          decision_id: input.decision_id,
+        });
+        const run = syntheticRun(
+          input.goal,
+          input.task,
+          input.decision_id,
+          cap,
+          passed ? "succeeded" : "failed",
+        );
+        this.deps.store.saveRun(run);
+        this.markTask(input.task, passed ? "done" : "failed");
+        return { ok: passed, run, message: live.message };
+      }
+      const typed = await this.deps.computer.runShadowType({
+        target: target_id,
+        text,
+        goal_id: input.goal.id,
+        prior_open: this.targetOpened(input.goal.id, target_id),
+      });
+      const passed = Boolean(typed.action.verification?.passed);
+      this.markTypeVerified(input.goal, passed);
+      recordObservation(this.deps.evidence, {
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+        action_id: typed.action.id,
+        capability_id: cap,
+        kind: "host_process",
+        summary: typed.action.verification?.summary ?? typed.message,
+        simulated: true,
+        decision_id: input.decision_id,
+      });
+      const run = syntheticRun(
+        input.goal,
+        input.task,
+        input.decision_id,
+        cap,
+        passed ? "simulated" : "failed",
+      );
+      this.deps.store.saveRun(run);
+      this.markTask(input.task, passed ? "done" : "failed");
+      return { ok: passed, run, message: typed.message };
+    }
+
+    this.markTask(input.task, "failed");
+    return { ok: false, message: `Computer capability not wired: ${cap}`, skipped: cap };
+  }
+
+  private async executePdfRead(input: {
+    goal: Goal;
+    task?: Task;
+    decision: OperatorDecision;
+    decision_id: string;
+  }): Promise<OrchestratorResult> {
+    this.beginTask(input.task);
+    const args = this.inputOf(input);
+    const path = typeof args.path === "string" ? args.path : undefined;
+    const url = typeof args.url === "string" ? args.url : undefined;
+    try {
+      const extract = await readPdf({
+        path,
+        url,
+        loader: this.deps.pdf_loader,
+        extractor: this.deps.pdf_extractor,
+      });
+      const memory = ingestPdfExtract({
+        extract,
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+      });
+      recordObservation(this.deps.evidence, {
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+        capability_id: "knowledge.pdf.read",
+        kind: "pdf_text",
+        summary: `PDF ${extract.source} bytes=${extract.bytes} facts=${memory.stored.length} skipped=${memory.skipped}`,
+        simulated: input.goal.mode === "shadow",
+        decision_id: input.decision_id,
+      });
+      const run = syntheticRun(
+        input.goal,
+        input.task,
+        input.decision_id,
+        "knowledge.pdf.read",
+        "simulated",
+      );
+      this.deps.store.saveRun(run);
+      this.markTask(input.task, "done");
+      return {
+        ok: true,
+        run,
+        facts_stored: memory.stored.length,
+        message: `Read PDF; stored ${memory.stored.length} observation facts`,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      recordObservation(this.deps.evidence, {
+        goal_id: input.goal.id,
+        task_id: input.task?.id,
+        capability_id: "knowledge.pdf.read",
+        kind: "pdf_text",
+        summary: `PDF read failed: ${msg}`,
+        simulated: true,
+        decision_id: input.decision_id,
+      });
+      const run = syntheticRun(input.goal, input.task, input.decision_id, "knowledge.pdf.read", "failed");
+      this.deps.store.saveRun(run);
+      this.markTask(input.task, "failed");
+      return { ok: false, run, skipped: msg, message: msg };
+    }
   }
 }

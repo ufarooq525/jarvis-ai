@@ -39,6 +39,7 @@ function ctx(over: Partial<OperatorContext>): OperatorContext {
     journal: [],
     normalized: over.normalized ?? normalizeOutcome({ outcome: g.outcome, domain: g.domain }),
     attempted_capability_ids: [],
+    plan_source: "fallback",
     ...over,
   };
 }

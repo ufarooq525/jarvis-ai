@@ -8,7 +8,9 @@ export type ObservationKind =
   | "page_not_visited"
   | "extract"
   | "metric"
-  | "os_status";
+  | "os_status"
+  | "host_process"
+  | "pdf_text";
 
 export interface ObservationRecord {
   id: string;

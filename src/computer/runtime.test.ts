@@ -21,6 +21,8 @@ describe("Phase 5 ComputerRuntime", () => {
   it("resolves semantic targets without coordinates", () => {
     expect(resolveTargetId("VS Code")).toBe("vscode");
     expect(resolveTargetId("browser")).toBe("browser");
+    expect(resolveTargetId("cursor")).toBe("cursor");
+    expect(resolveTargetId("Cursor")).toBe("cursor");
     expect(resolveTargetId("unknown-app-xyz")).toBeUndefined();
   });
 
@@ -114,6 +116,8 @@ describe("Phase 5 ComputerRuntime", () => {
   it("rejects unsafe launch commands", () => {
     expect(launchAllowlisted("notepad & calc").ok).toBe(false);
     expect(launchAllowlisted("").ok).toBe(false);
+    expect(launchAllowlisted("notepad", ["&calc"]).ok).toBe(false);
+    expect(launchAllowlisted("notepad", ["--new-window;rm"]).ok).toBe(false);
   });
 
   it("rejects unknown targets", async () => {
@@ -129,5 +133,85 @@ describe("Phase 5 ComputerRuntime", () => {
     expect(() => runtime.assertActAllowed("type")).toThrow(/blocked/);
     expect(() => runtime.assertActAllowed("scroll")).toThrow(/blocked/);
     expect(() => runtime.assertActAllowed("focus_window")).toThrow(/blocked/);
+  });
+
+  it("shadow type_text simulates keystrokes only after prior open", async () => {
+    const runtime = new ComputerRuntime();
+    const blocked = await runtime.runShadowType({
+      target: "notepad",
+      text: "Hello",
+      prior_open: false,
+    });
+    expect(blocked.action.ok).toBe(false);
+    const ok = await runtime.runShadowType({
+      target: "notepad",
+      text: "Hello",
+      prior_open: true,
+    });
+    expect(ok.simulated).toBe(true);
+    expect(ok.action.verification?.passed).toBe(true);
+    expect(ok.message).toContain("SIMULATED");
+    expect(ok.action.keystrokes_sent).toBe(false);
+    expect(runtime.typeIntoCalls).toBe(0);
+  });
+
+  it("live type_text requires OPEN and the pid from the preceding open", async () => {
+    const sent: Array<{ pid: number; text: string }> = [];
+    const runtime = new ComputerRuntime({
+      launcher: () => ({ ok: true, pid: 4242, command: "notepad" }),
+      typeIntoWindow: (pid, text) => {
+        sent.push({ pid, text });
+        return {
+          ok: true,
+          pid,
+          hwnd: 99,
+          process_running: true,
+          keystrokes_sent: true,
+          text_readback_feasible: true,
+          readback: text,
+        };
+      },
+    });
+    const need = await runtime.runLiveType({
+      target: "notepad",
+      text: "Hello from Jarvis",
+      prior_open: true,
+      goal_id: "goal_type",
+    });
+    expect("need_confirm" in need && need.need_confirm).toBe(true);
+
+    const blocked = await runtime.runLiveType({
+      target: "notepad",
+      text: "Hello from Jarvis",
+      confirm: "OPEN",
+      prior_open: true,
+      goal_id: "goal_type",
+    });
+    expect("need_confirm" in blocked).toBe(false);
+    if ("need_confirm" in blocked) return;
+    expect(blocked.action.ok).toBe(false);
+    expect(sent).toHaveLength(0);
+    expect(blocked.action.verification?.checks.some((c) => c.id === "pid_identified" && !c.ok)).toBe(
+      true,
+    );
+
+    await runtime.runLiveOpen({ target: "notepad", confirm: "OPEN", goal_id: "goal_type" });
+    const typed = await runtime.runLiveType({
+      target: "notepad",
+      text: "Hello from Jarvis",
+      confirm: "OPEN",
+      prior_open: true,
+      goal_id: "goal_type",
+    });
+    expect("need_confirm" in typed).toBe(false);
+    if ("need_confirm" in typed) return;
+    expect(typed.action.ok).toBe(true);
+    expect(sent).toEqual([{ pid: 4242, text: "Hello from Jarvis" }]);
+    expect(typed.action.readback).toBe("Hello from Jarvis");
+  });
+
+  it("does not treat type_text as a blocked coordinate act", () => {
+    const runtime = new ComputerRuntime();
+    expect(() => runtime.assertActAllowed("type_text")).not.toThrow();
   });
 });

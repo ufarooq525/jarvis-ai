@@ -45,4 +45,5 @@ export interface OperatorContext {
   journal: DecisionRecord[];
   normalized: NormalizedOutcome;
   attempted_capability_ids: string[];
+  plan_source: "model" | "fallback";
 }

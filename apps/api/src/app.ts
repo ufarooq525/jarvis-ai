@@ -756,7 +756,7 @@ export function createApp() {
       goal_id?: string;
     };
     if (!body.target?.trim()) {
-      return c.json({ error: "target is required (e.g. notepad, vscode, browser)" }, 400);
+      return c.json({ error: "target is required (e.g. notepad, cursor, vscode, browser)" }, 400);
     }
     const { engine } = getJarvisRuntime();
     const runtime = new ComputerRuntime(engine.evidence);

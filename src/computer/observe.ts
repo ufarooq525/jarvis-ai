@@ -78,7 +78,7 @@ export function getComputerSnapshot(): ComputerSnapshot {
       focus_window: false,
       live_open: true,
     },
-    note: "Phase 5+: observe + locate + SHADOW open + gated LIVE open (type OPEN). Click/type/scroll remain blocked.",
+    note: "Observe + locate + SHADOW open/type + gated LIVE open/type (type OPEN into the launched pid). Click/scroll/focus_window remain blocked.",
   };
 }
 

@@ -23,7 +23,9 @@ export class MemoryStore {
     const needle = outcome.toLowerCase().trim();
     return this.listGoals().filter((g) => {
       if (g.domain !== domain) return false;
-      if (g.status === "done") return false;
+      // Only in-flight plans are duplicates. Blocked/done/cancelled must not
+      // swallow a new Shadow plan (e.g. retry after a failed Live type).
+      if (g.status !== "active" && g.status !== "draft") return false;
       const hay = `${g.title} ${g.outcome}`.toLowerCase();
       return hay.includes(needle) || needle.includes(hay) || tokenizeOverlap(needle, hay);
     });

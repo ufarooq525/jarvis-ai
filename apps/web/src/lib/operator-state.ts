@@ -1,3 +1,4 @@
+import { boardGoalIsComputerType } from "../store/mapApiGoal";
 import type { Goal } from "../store/types";
 import type { EscalationDto, GoalDetailResponse, WmNowDto } from "../api";
 
@@ -34,6 +35,9 @@ export function humanTool(id: string): string {
   if (id.includes("get_state")) return "Checked current workforce state";
   if (id.includes("start_run")) return "Proposed an OS run";
   if (id.includes("browser")) return "Used browser research";
+  if (id.includes("pdf")) return "Read a PDF";
+  if (id.includes("type_text")) return "Typed into an identified window";
+  if (id.includes("open_app")) return "Opened an application";
   if (id.includes("computer")) return "Used computer capability";
   if (id.includes("wm.") || id.includes("fact")) return "Updated memory";
   return id.replace(/[._]/g, " ");
@@ -154,6 +158,7 @@ export function deriveOperatorSnapshot(input: {
 
   if (shadow.length > 0) {
     const g = shadow[0]!;
+    const computerType = boardGoalIsComputerType(g);
     return {
       state: "waiting",
       label: "Waiting",
@@ -161,9 +166,12 @@ export function deriveOperatorSnapshot(input: {
       modeLabel,
       modeHint,
       focusGoal: g,
-      focusDetail:
-        "This is a simulated plan. Review it before typing LIVE if you want real execution.",
-      nextAction: "Review the plan, then request Live only if you want real action.",
+      focusDetail: computerType
+        ? "Simulated only — the app was not launched. Request Live and type OPEN to do it for real."
+        : "This is a simulated plan. Review it before typing LIVE if you want real execution.",
+      nextAction: computerType
+        ? "Review the plan, then Request Live and type OPEN."
+        : "Review the plan, then request Live only if you want real action.",
     };
   }
 
